@@ -39,8 +39,8 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
     setNotes(initialNotes);
   }, [initialNotes]);
 
-  // Use explicit type to avoid any/unknown issues
-  const onDocumentLoadSuccess = (document: { numPages: number }) => setNumPages(document.numPages);
+  // Use explicit any to avoid type mismatch if react-pdf types infer argument as unknown
+  const onDocumentLoadSuccess = (document: any) => setNumPages(document.numPages);
 
   const handleSelection = useCallback(() => {
     const sel = window.getSelection();
@@ -210,7 +210,7 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
         <div className="flex justify-center min-h-full">
            <div className="relative shadow-2xl rounded-sm bg-white">
             <Document file={paper.fileData} onLoadSuccess={onDocumentLoadSuccess} className="pdf-document">
-              {numPages && Array.from({ length: numPages }, (_, index) => {
+              {numPages && Array.from(new Array(numPages), (_, index) => {
                 const pageNum = index + 1;
                 const pageNotes = notes.filter(n => n.pageNumber === pageNum);
                 return (
