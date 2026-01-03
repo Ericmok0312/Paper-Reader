@@ -7,7 +7,8 @@ import { updatePaperTags } from '../lib/db';
 import NoteWindow from './NoteWindow';
 import SummaryPanel from './SummaryPanel';
 
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+// Cast version to string to avoid "unknown" type error in strict mode
+pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${String(pdfjs.version)}/build/pdf.worker.min.mjs`;
 
 interface ReaderProps {
   paper: Paper;
@@ -38,7 +39,8 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
     setNotes(initialNotes);
   }, [initialNotes]);
 
-  const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => setNumPages(numPages);
+  // Use explicit any to avoid type mismatch if react-pdf types infer argument as unknown
+  const onDocumentLoadSuccess = (document: any) => setNumPages(document.numPages);
 
   const handleSelection = useCallback(() => {
     const sel = window.getSelection();
