@@ -8,7 +8,7 @@ import NoteWindow from './NoteWindow';
 import SummaryPanel from './SummaryPanel';
 
 // Cast version to string to avoid "unknown" type error in strict mode
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version as string}/build/pdf.worker.min.mjs`;
+pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${String(pdfjs.version)}/build/pdf.worker.min.mjs`;
 
 interface ReaderProps {
   paper: Paper;
@@ -210,7 +210,7 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
         <div className="flex justify-center min-h-full">
            <div className="relative shadow-2xl rounded-sm bg-white">
             <Document file={paper.fileData} onLoadSuccess={onDocumentLoadSuccess} className="pdf-document">
-              {numPages && Array.from(new Array(numPages), (_, index) => {
+              {numPages && Array.from({ length: numPages }, (_, index) => {
                 const pageNum = index + 1;
                 const pageNotes = notes.filter(n => n.pageNumber === pageNum);
                 return (

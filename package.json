@@ -9,14 +9,15 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@google/genai": "^0.1.2",
+    "@google/genai": "*",
     "clsx": "^2.1.1",
     "jszip": "^3.10.1",
     "lucide-react": "^0.363.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-markdown": "^9.0.1",
-    "react-pdf": "^9.0.0"
+    "react-pdf": "^9.0.0",
+    "pdfjs-dist": "^4.2.174"
   },
   "devDependencies": {
     "@types/react": "^18.2.66",
