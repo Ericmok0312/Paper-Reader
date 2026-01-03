@@ -146,7 +146,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                    </div>
                 ) : (
                   <p className="text-[10px] text-slate-500 leading-tight">
-                    Not configured. Go to Settings > Backup to set a location.
+                    Not configured. Go to Settings &gt; Backup to set a location.
                   </p>
                 )}
               </div>
