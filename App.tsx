@@ -36,16 +36,42 @@ const App: React.FC = () => {
   // Auto Backup State
   const [backupHandle, setBackupHandle] = useState<any>(null);
   const [lastBackupTime, setLastBackupTime] = useState<Date | null>(null);
+  const [backupPermissionNeeded, setBackupPermissionNeeded] = useState(false);
   const backupIntervalRef = useRef<number | null>(null);
 
-  useEffect(() => { 
-    loadLibrary();
-    loadBackupConfiguration();
-  }, []);
+  useEffect(() => { loadLibrary(); initBackup(); }, []);
+
+  // Initialize Backup: Check DB for existing handle
+  const initBackup = async () => {
+    try {
+      const handle = await getBackupHandle();
+      if (handle) {
+        // We have a handle, but permission might need verification on reload
+        const perm = await handle.queryPermission({ mode: 'readwrite' });
+        if (perm === 'granted') {
+          setBackupHandle(handle);
+        } else {
+          // Store locally to prompt user later
+          setBackupHandle(handle);
+          setBackupPermissionNeeded(true);
+          setNotifications(prev => [...prev, {
+            id: crypto.randomUUID(),
+            title: "Backup Paused",
+            message: "Click here to resume auto-backup to your file.",
+            type: 'info',
+            action: 'APPLY_TAGS' // Reusing action type as a trigger for generic click
+          }]);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to init backup", e);
+    }
+  };
 
   // Auto Backup Interval Logic
   useEffect(() => {
-    if (backupHandle) {
+    if (backupHandle && !backupPermissionNeeded) {
+      // Clear existing
       if (backupIntervalRef.current) window.clearInterval(backupIntervalRef.current);
       
       // Perform immediate backup
@@ -53,56 +79,14 @@ const App: React.FC = () => {
 
       // Set interval (every 60 seconds)
       backupIntervalRef.current = window.setInterval(performBackup, 60000);
+    } else {
+      if (backupIntervalRef.current) window.clearInterval(backupIntervalRef.current);
     }
 
     return () => {
       if (backupIntervalRef.current) window.clearInterval(backupIntervalRef.current);
     };
-  }, [backupHandle]);
-
-  const loadBackupConfiguration = async () => {
-    try {
-       const savedHandle = await getBackupHandle();
-       if (savedHandle) {
-         // Check permissions
-         const perm = await savedHandle.queryPermission({ mode: 'readwrite' });
-         if (perm === 'granted') {
-           setBackupHandle(savedHandle);
-         } else {
-           // If permission is prompt/denied, we can't start automatically without gesture.
-           // Show notification to user to resume.
-           setNotifications(prev => [...prev, {
-             id: crypto.randomUUID(),
-             title: "Resume Backup",
-             message: "Click here to reconnect to your backup file.",
-             type: 'info',
-             action: 'VIEW_RESULT' // Abusing this type to trigger click handler for special logic
-           }]);
-           // Store handle temporarily to resume on click
-           (window as any).__pendingBackupHandle = savedHandle;
-         }
-       }
-    } catch (e) {
-      console.warn("Could not load backup config", e);
-    }
-  };
-
-  const resumeBackup = async () => {
-     const handle = (window as any).__pendingBackupHandle;
-     if (handle) {
-       const perm = await handle.requestPermission({ mode: 'readwrite' });
-       if (perm === 'granted') {
-         setBackupHandle(handle);
-         setNotifications(prev => prev.filter(n => n.title !== "Resume Backup"));
-         setFinishedNotification({
-            id: crypto.randomUUID(),
-            title: "Backup Resumed",
-            message: "Auto-backup is active.",
-            type: 'success'
-         });
-       }
-     }
-  };
+  }, [backupHandle, backupPermissionNeeded]);
 
   const performBackup = async () => {
     if (!backupHandle) return;
@@ -111,17 +95,36 @@ const App: React.FC = () => {
       setLastBackupTime(new Date());
     } catch (e) {
       console.error("Auto Backup Failed", e);
-      setBackupHandle(null); // Stop if permission lost
-      setNotifications(prev => [...prev, {
-        id: crypto.randomUUID(), 
-        title: "Backup Stopped", 
-        message: "Permission lost. Please re-configure in Settings.", 
-        type: 'error'
-      }]);
+      // Check if it's a permission issue
+      const perm = await backupHandle.queryPermission({ mode: 'readwrite' });
+      if (perm !== 'granted') {
+        setBackupPermissionNeeded(true);
+        setNotifications(prev => [...prev, {
+          id: crypto.randomUUID(), 
+          title: "Backup Stopped", 
+          message: "Permission required. Click to resume.", 
+          type: 'error'
+        }]);
+      }
     }
   };
 
-  const handleSetupBackup = async () => {
+  const resumeBackup = async () => {
+    if (backupHandle && backupPermissionNeeded) {
+      const perm = await backupHandle.requestPermission({ mode: 'readwrite' });
+      if (perm === 'granted') {
+        setBackupPermissionNeeded(false);
+        setFinishedNotification({
+           id: crypto.randomUUID(),
+           title: "Backup Resumed",
+           message: "Auto-backup is active again.",
+           type: 'success'
+        });
+      }
+    }
+  };
+
+  const handleConfigureBackup = async () => {
     if (!('showSaveFilePicker' in window)) {
       alert("Your browser does not support the File System Access API. Please use Chrome, Edge, or Opera.");
       return;
@@ -129,21 +132,23 @@ const App: React.FC = () => {
     try {
       // @ts-ignore
       const handle = await window.showSaveFilePicker({
-        suggestedName: `scholarnote_autobackup.zip`,
+        suggestedName: `scholarnote_backup.zip`,
         types: [{
           description: 'ScholarNote Backup',
           accept: { 'application/zip': ['.zip'] },
         }],
       });
       
-      // Store in IDB
+      // Save to DB for persistence
       await saveBackupHandle(handle);
+      
       setBackupHandle(handle);
+      setBackupPermissionNeeded(false);
       
       setNotifications(prev => [...prev, {
         id: crypto.randomUUID(),
         title: "Auto-Backup Configured",
-        message: `Backing up to ${handle.name}`,
+        message: "Your library will sync to this file automatically.",
         type: 'success'
       }]);
     } catch (err) {
@@ -295,13 +300,6 @@ const App: React.FC = () => {
   };
 
   const handleNotificationClick = () => {
-    // Special handling for Resume Backup action
-    if (finishedNotification?.title === "Resume Backup" || finishedNotification?.message?.includes("reconnect")) {
-       resumeBackup();
-       setFinishedNotification(null);
-       return;
-    }
-
     if (finishedNotification?.action === 'VIEW_RESULT' && finishedNotification?.data) {
        setResultModalData({
          title: finishedNotification.title,
@@ -310,6 +308,14 @@ const App: React.FC = () => {
        setFinishedNotification(null);
     } else {
        setFinishedNotification(null);
+    }
+  };
+
+  // Handle generic click for resumption notifications
+  const handlePendingNotificationClick = (notif: NotificationItem) => {
+    if (notif.title.includes("Backup") && backupPermissionNeeded) {
+      resumeBackup();
+      setNotifications(prev => prev.filter(n => n.id !== notif.id));
     }
   };
 
@@ -369,15 +375,6 @@ const App: React.FC = () => {
     return <div className="h-screen w-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-indigo-600" size={48} /></div>;
   }
 
-  // Handle special notification for resume backup if it exists in the queue but not yet finished
-  useEffect(() => {
-    const resumeMsg = notifications.find(n => n.title === "Resume Backup");
-    if (resumeMsg && !finishedNotification) {
-      setFinishedNotification(resumeMsg);
-    }
-  }, [notifications, finishedNotification]);
-
-
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
       {/* View Router */}
@@ -390,8 +387,7 @@ const App: React.FC = () => {
             onDeletePaper={handleDeletePaper} 
             onRenamePaper={handleRenamePaper} 
             onImportSuccess={loadLibrary}
-            onOpenSettings={() => setShowSettings(true)}
-            autoBackupStatus={{ active: !!backupHandle, lastBackup: lastBackupTime, fileName: backupHandle?.name }}
+            autoBackupStatus={{ active: !!backupHandle && !backupPermissionNeeded, lastBackup: lastBackupTime }}
             isUploading={isUploading} 
           />
           
@@ -431,10 +427,13 @@ const App: React.FC = () => {
         <SettingsModal 
           settings={settings} 
           onSave={handleSaveSettings} 
-          onClose={() => setShowSettings(false)}
-          backupHandleName={backupHandle?.name}
-          onSetupBackup={handleSetupBackup}
-          backupLastTime={lastBackupTime}
+          onClose={() => setShowSettings(false)} 
+          onConfigureBackup={handleConfigureBackup}
+          backupStatus={{
+             active: !!backupHandle && !backupPermissionNeeded,
+             lastBackup: lastBackupTime,
+             fileName: backupHandle?.name
+          }}
         />
       )}
 
@@ -453,8 +452,8 @@ const App: React.FC = () => {
           onClick={handleNotificationClick}
           className="fixed bottom-8 left-8 bg-white border border-slate-200 p-4 rounded-2xl shadow-2xl z-[200] flex items-center gap-4 cursor-pointer hover:scale-105 transition-transform animate-in slide-in-from-bottom-5"
         >
-           <div className={`p-2 rounded-full ${finishedNotification.type === 'success' ? 'bg-green-100 text-green-600' : finishedNotification.type === 'error' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
-             {finishedNotification.title === 'Resume Backup' ? <HardDrive size={20}/> : <Bell size={20} />}
+           <div className={`p-2 rounded-full ${finishedNotification.type === 'success' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+             <Bell size={20} />
            </div>
            <div>
              <h4 className="font-bold text-sm text-slate-900">{finishedNotification.title}</h4>
@@ -463,13 +462,23 @@ const App: React.FC = () => {
         </div>
       )}
       
-      {/* Pending Notifications (Optional: Stack multiple if needed, currently showing one) */}
-      {notifications.length > 0 && !finishedNotification && (
-         <div className="fixed bottom-8 left-8 bg-slate-900 text-white p-4 rounded-2xl shadow-2xl z-[200] flex items-center gap-3 animate-in slide-in-from-bottom-5">
-           <Loader2 className="animate-spin text-indigo-400" size={20} />
-           <span className="text-xs font-bold">AI Processing...</span>
-         </div>
-      )}
+      {/* Pending Notifications List */}
+      <div className="fixed bottom-8 left-8 z-[200] flex flex-col gap-2">
+        {notifications.map(n => (
+          <div 
+            key={n.id}
+            onClick={() => handlePendingNotificationClick(n)}
+            className={`bg-slate-900 text-white p-4 rounded-2xl shadow-2xl flex items-center gap-3 animate-in slide-in-from-bottom-5 ${n.action ? 'cursor-pointer hover:bg-slate-800' : ''}`}
+          >
+            {n.type === 'info' && <Loader2 className="animate-spin text-indigo-400" size={20} />}
+            {n.type === 'error' && <HardDrive className="text-red-400" size={20} />}
+            <div>
+              <p className="text-xs font-bold">{n.title}</p>
+              <p className="text-[10px] text-slate-300">{n.message}</p>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 };

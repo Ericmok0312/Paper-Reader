@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { PaperMetadata } from '../types';
-import { Upload, FileText, Search, Trash2, BookOpen, Edit2, Check, X, Download, Archive, HardDrive, Settings } from 'lucide-react';
+import { Upload, FileText, Search, Trash2, BookOpen, Edit2, Check, X, Download, Archive, HardDrive } from 'lucide-react';
 import { clsx } from 'clsx';
 import { exportDatabase, importDatabase } from '../lib/db';
 
@@ -11,8 +11,7 @@ interface DashboardProps {
   onDeletePaper: (id: string) => void;
   onRenamePaper: (id: string, newTitle: string) => void;
   onImportSuccess: () => void;
-  onOpenSettings: () => void;
-  autoBackupStatus: { active: boolean, lastBackup: Date | null, fileName?: string };
+  autoBackupStatus: { active: boolean, lastBackup: Date | null };
   isUploading: boolean;
 }
 
@@ -23,7 +22,6 @@ const Dashboard: React.FC<DashboardProps> = ({
   onDeletePaper, 
   onRenamePaper, 
   onImportSuccess, 
-  onOpenSettings,
   autoBackupStatus,
   isUploading 
 }) => {
@@ -133,40 +131,23 @@ const Dashboard: React.FC<DashboardProps> = ({
             
             <div className="space-y-3">
               {/* Auto Backup Status */}
-              <div 
-                onClick={onOpenSettings}
-                className={clsx(
-                  "rounded-lg p-3 border transition-colors cursor-pointer hover:shadow-md",
-                  autoBackupStatus.active 
-                    ? "bg-emerald-50 border-emerald-100" 
-                    : "bg-slate-50 border-slate-100"
-                )}
-              >
-                <div className="flex justify-between items-start mb-2">
-                   <div className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                     Auto-Backup {autoBackupStatus.active ? <Check size={10} className="text-emerald-500" /> : ''}
-                   </div>
-                   {autoBackupStatus.active ? (
-                     <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                   ) : (
-                     <Settings size={12} className="text-slate-400" />
-                   )}
+              <div className={`rounded-lg p-3 border transition-colors ${autoBackupStatus.active ? 'bg-emerald-50 border-emerald-100' : 'bg-slate-50 border-slate-100'}`}>
+                <div className="flex justify-between items-start mb-1">
+                   <div className="text-xs font-bold text-slate-700">Auto-Backup</div>
+                   <div className={`h-2 w-2 rounded-full ${autoBackupStatus.active ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></div>
                 </div>
                 
                 {autoBackupStatus.active ? (
                    <div>
-                     <p className="text-[10px] text-emerald-700 font-medium mb-1 truncate" title={autoBackupStatus.fileName}>
-                       To: {autoBackupStatus.fileName || 'Linked File'}
-                     </p>
-                     <p className="text-[10px] text-slate-500">
-                       Last: {autoBackupStatus.lastBackup ? autoBackupStatus.lastBackup.toLocaleTimeString() : 'Pending...'}
+                     <p className="text-[10px] text-emerald-700 font-medium">Active</p>
+                     <p className="text-[10px] text-slate-500 mt-1">
+                       Saved: {autoBackupStatus.lastBackup ? autoBackupStatus.lastBackup.toLocaleTimeString() : 'Pending...'}
                      </p>
                    </div>
                 ) : (
-                  <div>
-                    <p className="text-[10px] text-slate-500 font-medium">Not configured</p>
-                    <p className="text-[9px] text-slate-400 mt-1">Click to configure automatic file sync in settings.</p>
-                  </div>
+                  <p className="text-[10px] text-slate-500 leading-tight">
+                    Not configured. Go to Settings > Backup to set a location.
+                  </p>
                 )}
               </div>
 

@@ -22,7 +22,7 @@ const openDB = (): Promise<IDBDatabase> => {
         notesStore.createIndex('paperId', 'paperId', { unique: false });
       }
       if (!db.objectStoreNames.contains(STORE_CONFIG)) {
-        db.createObjectStore(STORE_CONFIG); // Key-value store for settings/handles
+        db.createObjectStore(STORE_CONFIG);
       }
     };
 
@@ -151,27 +151,25 @@ export const deleteNote = async (id: string): Promise<void> => {
   });
 };
 
-// --- CONFIGURATION / HANDLES ---
+// --- CONFIG PERSISTENCE (Backup Handle) ---
 
 export const saveBackupHandle = async (handle: any): Promise<void> => {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_CONFIG, 'readwrite');
-    const store = tx.objectStore(STORE_CONFIG);
-    const request = store.put(handle, 'backupHandle');
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
+    tx.objectStore(STORE_CONFIG).put(handle, 'backup_handle');
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
 };
 
-export const getBackupHandle = async (): Promise<any> => {
+export const getBackupHandle = async (): Promise<any | undefined> => {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_CONFIG, 'readonly');
-    const store = tx.objectStore(STORE_CONFIG);
-    const request = store.get('backupHandle');
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    const req = tx.objectStore(STORE_CONFIG).get('backup_handle');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
   });
 };
 
