@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { PaperMetadata } from '../types';
-import { Upload, FileText, Search, Trash2, BookOpen, Edit2, Check, X, Download, Archive, HardDrive } from 'lucide-react';
+import { Upload, FileText, Search, Trash2, BookOpen, Edit2, Check, X, Download, Archive, HardDrive, Plus, Tag } from 'lucide-react';
 import { clsx } from 'clsx';
 import { exportDatabase, importDatabase } from '../lib/db';
 
@@ -10,6 +10,7 @@ interface DashboardProps {
   onSelectPaper: (id: string) => void;
   onDeletePaper: (id: string) => void;
   onRenamePaper: (id: string, newTitle: string) => void;
+  onUpdateTags: (id: string, newTags: string[]) => void;
   onImportSuccess: () => void;
   autoBackupStatus: { active: boolean, lastBackup: Date | null };
   isUploading: boolean;
@@ -21,14 +22,23 @@ const Dashboard: React.FC<DashboardProps> = ({
   onSelectPaper, 
   onDeletePaper, 
   onRenamePaper, 
+  onUpdateTags,
   onImportSuccess, 
   autoBackupStatus,
   isUploading 
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  
+  // Title Editing State
   const [editingPaperId, setEditingPaperId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
+
+  // Tag Editing State
+  const [tagEditId, setTagEditId] = useState<string | null>(null);
+  const [currentEditTags, setCurrentEditTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
+
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
 
@@ -47,6 +57,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     }
   };
 
+  // Title Editing Handlers
   const startEditing = (paper: PaperMetadata) => {
     setEditingPaperId(paper.id);
     setEditTitle(paper.title);
@@ -57,6 +68,31 @@ const Dashboard: React.FC<DashboardProps> = ({
       onRenamePaper(id, editTitle.trim());
     }
     setEditingPaperId(null);
+  };
+
+  // Tag Editing Handlers
+  const startEditingTags = (paper: PaperMetadata) => {
+    setTagEditId(paper.id);
+    setCurrentEditTags([...paper.tags]);
+    setTagInput('');
+  };
+
+  const saveTags = (id: string) => {
+    onUpdateTags(id, currentEditTags);
+    setTagEditId(null);
+  };
+
+  const addTag = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    const val = tagInput.trim();
+    if (val && !currentEditTags.includes(val)) {
+      setCurrentEditTags([...currentEditTags, val]);
+      setTagInput('');
+    }
+  };
+
+  const removeTag = (tagToRemove: string) => {
+    setCurrentEditTags(currentEditTags.filter(t => t !== tagToRemove));
   };
 
   const handleExport = async () => {
@@ -231,28 +267,32 @@ const Dashboard: React.FC<DashboardProps> = ({
               {filteredPapers.map(paper => (
                 <div key={paper.id} className="group bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition-shadow flex flex-col justify-between">
                   <div>
+                    {/* Header Row: Icon, Actions */}
                     <div className="flex justify-between items-start mb-2">
                       <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600">
                         <FileText size={24} />
                       </div>
-                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      
+                      {/* Actions: Always visible now (removed opacity-0) */}
+                      <div className="flex gap-1">
                          <button 
                           onClick={(e) => { e.stopPropagation(); startEditing(paper); }}
-                          className="text-gray-400 hover:text-indigo-600 p-1 rounded-full hover:bg-indigo-50 transition-colors"
-                          title="Rename"
+                          className="text-gray-400 hover:text-indigo-600 p-1.5 rounded-md hover:bg-indigo-50 transition-colors"
+                          title="Rename Paper"
                         >
                           <Edit2 size={16} />
                         </button>
                         <button 
                           onClick={(e) => { e.stopPropagation(); onDeletePaper(paper.id); }}
-                          className="text-gray-400 hover:text-red-500 p-1 rounded-full hover:bg-red-50 transition-colors"
-                          title="Delete paper"
+                          className="text-gray-400 hover:text-red-500 p-1.5 rounded-md hover:bg-red-50 transition-colors"
+                          title="Delete Paper"
                         >
                           <Trash2 size={16} />
                         </button>
                       </div>
                     </div>
                     
+                    {/* Title Editing */}
                     {editingPaperId === paper.id ? (
                       <div className="mb-2 flex items-center gap-2">
                         <input
@@ -264,25 +304,68 @@ const Dashboard: React.FC<DashboardProps> = ({
                           onClick={(e) => e.stopPropagation()}
                           onKeyDown={(e) => e.key === 'Enter' && saveTitle(paper.id)}
                         />
-                        <button onClick={(e) => { e.stopPropagation(); saveTitle(paper.id); }} className="text-green-600"><Check size={16}/></button>
-                        <button onClick={(e) => { e.stopPropagation(); setEditingPaperId(null); }} className="text-red-500"><X size={16}/></button>
+                        <button onClick={(e) => { e.stopPropagation(); saveTitle(paper.id); }} className="text-green-600 hover:bg-green-50 rounded p-1"><Check size={16}/></button>
+                        <button onClick={(e) => { e.stopPropagation(); setEditingPaperId(null); }} className="text-red-500 hover:bg-red-50 rounded p-1"><X size={16}/></button>
                       </div>
                     ) : (
                        <h3 
-                        className="font-semibold text-gray-900 line-clamp-2 mb-2 cursor-pointer hover:text-indigo-600"
+                        className="font-semibold text-gray-900 line-clamp-2 mb-2 cursor-pointer hover:text-indigo-600 transition-colors"
                         onClick={() => onSelectPaper(paper.id)}
+                        title="Click to read"
                       >
                         {paper.title}
                       </h3>
                     )}
 
-                    <div className="flex flex-wrap gap-2 mb-4">
-                      {paper.tags.map(tag => (
-                        <span key={tag} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
+                    {/* Tags Area */}
+                    {tagEditId === paper.id ? (
+                      <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm mb-2" onClick={e => e.stopPropagation()}>
+                        <div className="flex flex-wrap gap-1 mb-2">
+                          {currentEditTags.map(tag => (
+                            <span key={tag} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700 border border-indigo-200">
+                              {tag}
+                              <button onClick={() => removeTag(tag)} className="ml-1 hover:text-red-600"><X size={10}/></button>
+                            </span>
+                          ))}
+                        </div>
+                        <div className="flex gap-1">
+                          <input 
+                            className="flex-1 text-xs border border-slate-300 rounded px-2 py-1 focus:outline-none focus:border-indigo-500 bg-white"
+                            placeholder="Add tag..."
+                            value={tagInput}
+                            onChange={e => setTagInput(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && addTag(e)}
+                            list={`tags-list-${paper.id}`}
+                            autoFocus
+                          />
+                          <datalist id={`tags-list-${paper.id}`}>
+                            {allTags.filter(t => !currentEditTags.includes(t)).map(t => (
+                              <option key={t} value={t} />
+                            ))}
+                          </datalist>
+                          <button onClick={() => addTag()} className="bg-slate-200 hover:bg-slate-300 text-slate-700 p-1 rounded"><Plus size={14}/></button>
+                        </div>
+                        <div className="flex justify-end gap-2 mt-2 pt-2 border-t border-slate-200">
+                           <button onClick={() => setTagEditId(null)} className="text-xs text-slate-500 hover:text-slate-800">Cancel</button>
+                           <button onClick={() => saveTags(paper.id)} className="bg-indigo-600 text-white text-xs px-2 py-1 rounded font-bold hover:bg-indigo-700">Done</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap gap-2 mb-4 items-center min-h-[24px]">
+                        {paper.tags.map(tag => (
+                          <span key={tag} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                            {tag}
+                          </span>
+                        ))}
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); startEditingTags(paper); }}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 p-0.5 rounded"
+                          title="Manage Tags"
+                        >
+                          <Tag size={12} />
+                        </button>
+                      </div>
+                    )}
                   </div>
                   
                   <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">

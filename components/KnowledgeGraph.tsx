@@ -15,7 +15,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ papers, allNotes, onBac
   
   allNotes.forEach(note => {
     note.tags.forEach(tag => {
-      const normalized = tag.toLowerCase();
+      const normalized = tag; // Use original tag case
       if (!tagMap.has(normalized)) {
         tagMap.set(normalized, { notes: [], paperIds: new Set() });
       }
@@ -50,7 +50,7 @@ const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ papers, allNotes, onBac
               <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Tag size={16} className="text-indigo-500" />
-                  <span className="font-bold text-slate-800 capitalize">{tag}</span>
+                  <span className="font-bold text-slate-800">{tag}</span>
                 </div>
                 <span className="bg-indigo-100 text-indigo-700 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-tighter">
                   {data.notes.length} Connections

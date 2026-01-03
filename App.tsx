@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Paper, PaperMetadata, Note, ViewState, AppSettings, NotificationItem } from './types';
-import { savePaper, getAllPapersMetadata, getPaperById, getNotesByPaperId, deletePaper, updatePaperTitle, saveNote, updatePaperSummary, writeBackupToHandle, getBackupHandle, saveBackupHandle } from './lib/db';
+import { savePaper, getAllPapersMetadata, getPaperById, getNotesByPaperId, deletePaper, updatePaperTitle, saveNote, updatePaperSummary, writeBackupToHandle, getBackupHandle, saveBackupHandle, updatePaperTags } from './lib/db';
 import { suggestTagsAI, organizeSummaryAI, reorganizeNoteAI } from './lib/ai';
 import Dashboard from './components/Dashboard';
 import Reader from './components/Reader';
@@ -364,10 +364,22 @@ const App: React.FC = () => {
     setPapers(prev => prev.map(p => p.id === id ? { ...p, title: newTitle } : p));
   };
 
+  const handlePaperTagsUpdate = async (id: string, newTags: string[]) => {
+    await updatePaperTags(id, newTags);
+    setPapers(prev => prev.map(p => p.id === id ? { ...p, tags: newTags } : p));
+    // Update current paper if it's the one being edited
+    if (currentPaper?.id === id) {
+      setCurrentPaper(prev => prev ? { ...prev, tags: newTags } : null);
+    }
+    // Refresh global tag list for graphs
+    const allSet = new Set(allTags);
+    newTags.forEach(t => allSet.add(t));
+    setAllTags(Array.from(allSet));
+  };
+
   const handleUpdateTags = (newTags: string[]) => {
     if (currentPaper) {
-      setCurrentPaper({ ...currentPaper, tags: newTags });
-      setPapers(prev => prev.map(p => p.id === currentPaper.id ? { ...p, tags: newTags } : p));
+      handlePaperTagsUpdate(currentPaper.id, newTags);
     }
   };
 
@@ -386,6 +398,7 @@ const App: React.FC = () => {
             onSelectPaper={handleSelectPaper} 
             onDeletePaper={handleDeletePaper} 
             onRenamePaper={handleRenamePaper} 
+            onUpdateTags={handlePaperTagsUpdate}
             onImportSuccess={loadLibrary}
             autoBackupStatus={{ active: !!backupHandle && !backupPermissionNeeded, lastBackup: lastBackupTime }}
             isUploading={isUploading} 

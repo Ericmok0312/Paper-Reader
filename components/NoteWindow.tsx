@@ -26,7 +26,7 @@ const NoteWindow: React.FC<NoteWindowProps> = ({ note, allGlobalTags, allNotes, 
     setTags(note.tags || []);
   }, [note.tags]);
 
-  // Sync comment with props when parent updates (e.g. AI auto-reorganize)
+  // Sync comment with props when parent updates (e.g. AI auto-reorg)
   useEffect(() => {
     setComment(note.comment || '');
   }, [note.comment]);
@@ -90,7 +90,7 @@ const NoteWindow: React.FC<NoteWindowProps> = ({ note, allGlobalTags, allNotes, 
   };
 
   const handleAddTag = (tag: string) => {
-    const sanitized = tag.trim().toLowerCase();
+    const sanitized = tag.trim();
     if (sanitized && !tags.includes(sanitized)) {
       setTags([...tags, sanitized]);
     }
