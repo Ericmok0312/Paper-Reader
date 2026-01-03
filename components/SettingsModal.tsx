@@ -1,14 +1,18 @@
 import React, { useState } from 'react';
-import { X, Save, FileCode, RotateCcw } from 'lucide-react';
+import { X, Save, FileCode, RotateCcw, HardDrive, Check, AlertTriangle } from 'lucide-react';
 import { AppSettings } from '../types';
 
 interface SettingsModalProps {
   settings: AppSettings;
   onSave: (newSettings: AppSettings) => void;
   onClose: () => void;
+  // Backup props
+  backupHandleName?: string;
+  onSetupBackup: () => void;
+  backupLastTime?: Date | null;
 }
 
-const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose }) => {
+const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose, backupHandleName, onSetupBackup, backupLastTime }) => {
   const [highlightColor, setHighlightColor] = useState(settings.highlightColor);
   const [apiBaseUrl, setApiBaseUrl] = useState(settings.apiBaseUrl || '');
   const [aiModel, setAiModel] = useState(settings.aiModel || '');
@@ -18,7 +22,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
   const [promptReorganizeNote, setPromptReorganizeNote] = useState(settings.promptReorganizeNote || '');
   const [promptOrganizeSummary, setPromptOrganizeSummary] = useState(settings.promptOrganizeSummary || '');
   
-  const [activeTab, setActiveTab] = useState<'general' | 'prompts'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'prompts' | 'backup'>('general');
 
   const handleSave = () => {
     onSave({
@@ -78,11 +82,68 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
     </div>
   );
 
+  const renderBackupSettings = () => (
+    <div className="space-y-6 animate-in fade-in">
+      <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+        <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2 mb-2">
+          <HardDrive size={16} className="text-indigo-600" /> Auto-Backup Location
+        </h3>
+        <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+          Select a file on your device. The app will automatically save your entire library to this file every 60 seconds while open.
+        </p>
+
+        {backupHandleName ? (
+          <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-green-100 text-green-700 rounded-full">
+                <Check size={16} />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-800">{backupHandleName}</p>
+                <p className="text-[10px] text-slate-400">
+                  Last saved: {backupLastTime ? backupLastTime.toLocaleTimeString() : 'Pending...'}
+                </p>
+              </div>
+            </div>
+            <button 
+              onClick={onSetupBackup}
+              className="text-xs text-indigo-600 hover:text-indigo-800 font-medium hover:underline"
+            >
+              Change
+            </button>
+          </div>
+        ) : (
+          <div className="bg-amber-50 p-3 rounded-lg border border-amber-200 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-amber-100 text-amber-700 rounded-full">
+                <AlertTriangle size={16} />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-800">Not Configured</p>
+                <p className="text-[10px] text-slate-500">Your data exists only in this browser.</p>
+              </div>
+            </div>
+            <button 
+              onClick={onSetupBackup}
+              className="px-3 py-1.5 bg-slate-900 text-white rounded text-xs font-bold hover:bg-slate-800"
+            >
+              Set Location
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="text-[10px] text-slate-400 px-1">
+        <p><strong>Note:</strong> Browsers require permission to access files. If you restart your browser, you may be asked to click "Resume" in the main interface to reconnect to the backup file.</p>
+      </div>
+    </div>
+  );
+
   const renderPromptSettings = () => (
     <div className="space-y-5 animate-in fade-in">
       <div className="bg-indigo-50 p-3 rounded-lg border border-indigo-100">
         <p className="text-[10px] text-indigo-700 leading-relaxed">
-          <strong>Tip:</strong> Use <code className="bg-white px-1 rounded text-indigo-900">{'{{text}}'}</code> as a placeholder for the content. For tagging, you can also use <code className="bg-white px-1 rounded text-indigo-900">{'{{globalTags}}'}</code> and <code className="bg-white px-1 rounded text-indigo-900">{'{{currentTags}}'}</code>.
+          <strong>Tip:</strong> Use <code className="bg-white px-1 rounded text-indigo-900">{'{{text}}'}</code> as a placeholder for the content.
         </p>
       </div>
 
@@ -137,16 +198,22 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-gray-100 px-6 shrink-0">
+        <div className="flex border-b border-gray-100 px-6 shrink-0 gap-4">
           <button 
             onClick={() => setActiveTab('general')}
-            className={`py-3 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors ${activeTab === 'general' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+            className={`py-3 px-2 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors ${activeTab === 'general' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
           >
             General
           </button>
           <button 
+            onClick={() => setActiveTab('backup')}
+            className={`py-3 px-2 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors ${activeTab === 'backup' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+          >
+            Data Backup
+          </button>
+          <button 
             onClick={() => setActiveTab('prompts')}
-            className={`py-3 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors ${activeTab === 'prompts' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+            className={`py-3 px-2 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors ${activeTab === 'prompts' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
           >
             AI Prompts
           </button>
@@ -154,7 +221,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
 
         {/* Content */}
         <div className="p-6 overflow-y-auto flex-1">
-          {activeTab === 'general' ? renderGeneralSettings() : renderPromptSettings()}
+          {activeTab === 'general' && renderGeneralSettings()}
+          {activeTab === 'backup' && renderBackupSettings()}
+          {activeTab === 'prompts' && renderPromptSettings()}
         </div>
 
         {/* Footer */}

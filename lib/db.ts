@@ -2,9 +2,10 @@ import { Paper, Note, PaperMetadata } from '../types';
 import JSZip from 'jszip';
 
 const DB_NAME = 'ScholarNoteDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2; // Incremented for config store
 const STORE_PAPERS = 'papers';
 const STORE_NOTES = 'notes';
+const STORE_CONFIG = 'config';
 
 // Helper to open DB
 const openDB = (): Promise<IDBDatabase> => {
@@ -19,6 +20,9 @@ const openDB = (): Promise<IDBDatabase> => {
       if (!db.objectStoreNames.contains(STORE_NOTES)) {
         const notesStore = db.createObjectStore(STORE_NOTES, { keyPath: 'id' });
         notesStore.createIndex('paperId', 'paperId', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(STORE_CONFIG)) {
+        db.createObjectStore(STORE_CONFIG); // Key-value store for settings/handles
       }
     };
 
@@ -147,6 +151,30 @@ export const deleteNote = async (id: string): Promise<void> => {
   });
 };
 
+// --- CONFIGURATION / HANDLES ---
+
+export const saveBackupHandle = async (handle: any): Promise<void> => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_CONFIG, 'readwrite');
+    const store = tx.objectStore(STORE_CONFIG);
+    const request = store.put(handle, 'backupHandle');
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+};
+
+export const getBackupHandle = async (): Promise<any> => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_CONFIG, 'readonly');
+    const store = tx.objectStore(STORE_CONFIG);
+    const request = store.get('backupHandle');
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+};
+
 // --- PORTABLE DATABASE (EXPORT/IMPORT) ---
 
 export const exportDatabase = async (): Promise<Blob> => {
@@ -191,6 +219,17 @@ export const exportDatabase = async (): Promise<Blob> => {
 
   // 6. Generate ZIP
   return await zip.generateAsync({ type: "blob" });
+};
+
+// Automatic Backup Writer
+export const writeBackupToHandle = async (fileHandle: any): Promise<void> => {
+  const blob = await exportDatabase();
+  // Create a writable stream to the file
+  const writable = await fileHandle.createWritable();
+  // Write the contents
+  await writable.write(blob);
+  // Close the file
+  await writable.close();
 };
 
 export const importDatabase = async (zipFile: File): Promise<void> => {

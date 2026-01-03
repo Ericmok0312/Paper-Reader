@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { PaperMetadata } from '../types';
-import { Upload, FileText, Search, Trash2, BookOpen, Edit2, Check, X, Download, Archive } from 'lucide-react';
+import { Upload, FileText, Search, Trash2, BookOpen, Edit2, Check, X, Download, Archive, HardDrive, Settings } from 'lucide-react';
 import { clsx } from 'clsx';
 import { exportDatabase, importDatabase } from '../lib/db';
 
@@ -10,11 +10,23 @@ interface DashboardProps {
   onSelectPaper: (id: string) => void;
   onDeletePaper: (id: string) => void;
   onRenamePaper: (id: string, newTitle: string) => void;
-  onImportSuccess: () => void; // Trigger refresh
+  onImportSuccess: () => void;
+  onOpenSettings: () => void;
+  autoBackupStatus: { active: boolean, lastBackup: Date | null, fileName?: string };
   isUploading: boolean;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ papers, onUpload, onSelectPaper, onDeletePaper, onRenamePaper, onImportSuccess, isUploading }) => {
+const Dashboard: React.FC<DashboardProps> = ({ 
+  papers, 
+  onUpload, 
+  onSelectPaper, 
+  onDeletePaper, 
+  onRenamePaper, 
+  onImportSuccess, 
+  onOpenSettings,
+  autoBackupStatus,
+  isUploading 
+}) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [editingPaperId, setEditingPaperId] = useState<string | null>(null);
@@ -113,27 +125,70 @@ const Dashboard: React.FC<DashboardProps> = ({ papers, onUpload, onSelectPaper, 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
         {/* Sidebar Filters & Data Management */}
         <div className="lg:col-span-1 space-y-6">
+          {/* Data Persistence Card */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Portable Database</h3>
-            <div className="space-y-2">
-              <button 
-                onClick={handleExport} 
-                disabled={isExporting}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors"
+            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-1">
+              <HardDrive size={12}/> Backup & Restore
+            </h3>
+            
+            <div className="space-y-3">
+              {/* Auto Backup Status */}
+              <div 
+                onClick={onOpenSettings}
+                className={clsx(
+                  "rounded-lg p-3 border transition-colors cursor-pointer hover:shadow-md",
+                  autoBackupStatus.active 
+                    ? "bg-emerald-50 border-emerald-100" 
+                    : "bg-slate-50 border-slate-100"
+                )}
               >
-                <Download size={14} /> {isExporting ? 'Zipping...' : 'Backup Library (.zip)'}
-              </button>
-              
-              <label className="w-full cursor-pointer flex items-center justify-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors">
-                 <Archive size={14} /> {isImporting ? 'Restoring...' : 'Restore Library'}
-                 <input type="file" accept=".zip" className="hidden" onChange={handleImport} disabled={isImporting} />
-              </label>
-              <p className="text-[10px] text-gray-400 text-center mt-2 px-1">
-                Your data is portable. Download the .zip to move your entire library (PDFs + Notes) between devices.
-              </p>
+                <div className="flex justify-between items-start mb-2">
+                   <div className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                     Auto-Backup {autoBackupStatus.active ? <Check size={10} className="text-emerald-500" /> : ''}
+                   </div>
+                   {autoBackupStatus.active ? (
+                     <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                   ) : (
+                     <Settings size={12} className="text-slate-400" />
+                   )}
+                </div>
+                
+                {autoBackupStatus.active ? (
+                   <div>
+                     <p className="text-[10px] text-emerald-700 font-medium mb-1 truncate" title={autoBackupStatus.fileName}>
+                       To: {autoBackupStatus.fileName || 'Linked File'}
+                     </p>
+                     <p className="text-[10px] text-slate-500">
+                       Last: {autoBackupStatus.lastBackup ? autoBackupStatus.lastBackup.toLocaleTimeString() : 'Pending...'}
+                     </p>
+                   </div>
+                ) : (
+                  <div>
+                    <p className="text-[10px] text-slate-500 font-medium">Not configured</p>
+                    <p className="text-[9px] text-slate-400 mt-1">Click to configure automatic file sync in settings.</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Manual Actions */}
+              <div className="grid grid-cols-2 gap-2">
+                <button 
+                  onClick={handleExport} 
+                  disabled={isExporting}
+                  className="flex flex-col items-center justify-center gap-1 px-2 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold transition-colors"
+                >
+                  <Download size={14} /> Download ZIP
+                </button>
+                
+                <label className="cursor-pointer flex flex-col items-center justify-center gap-1 px-2 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold transition-colors">
+                  <Archive size={14} /> Restore ZIP
+                  <input type="file" accept=".zip" className="hidden" onChange={handleImport} disabled={isImporting} />
+                </label>
+              </div>
             </div>
           </div>
 
+          {/* Filters Card */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
             <div className="relative mb-4">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />

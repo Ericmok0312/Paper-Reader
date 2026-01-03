@@ -1,13 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Paper, PaperMetadata, Note, ViewState, AppSettings, NotificationItem } from './types';
-import { savePaper, getAllPapersMetadata, getPaperById, getNotesByPaperId, deletePaper, updatePaperTitle, saveNote, updatePaperSummary } from './lib/db';
+import { savePaper, getAllPapersMetadata, getPaperById, getNotesByPaperId, deletePaper, updatePaperTitle, saveNote, updatePaperSummary, writeBackupToHandle, getBackupHandle, saveBackupHandle } from './lib/db';
 import { suggestTagsAI, organizeSummaryAI, reorganizeNoteAI } from './lib/ai';
 import Dashboard from './components/Dashboard';
 import Reader from './components/Reader';
 import KnowledgeGraph from './components/KnowledgeGraph';
 import SettingsModal from './components/SettingsModal';
 import ResultModal from './components/ResultModal';
-import { Loader2, Share2, Settings, Bell } from 'lucide-react';
+import { Loader2, Share2, Settings, Bell, HardDrive } from 'lucide-react';
 
 const DEFAULT_SETTINGS: AppSettings = {
   highlightColor: 'yellow'
@@ -33,7 +33,123 @@ const App: React.FC = () => {
   const [finishedNotification, setFinishedNotification] = useState<NotificationItem | null>(null);
   const [resultModalData, setResultModalData] = useState<{ title: string, data: any } | null>(null);
 
-  useEffect(() => { loadLibrary(); }, []);
+  // Auto Backup State
+  const [backupHandle, setBackupHandle] = useState<any>(null);
+  const [lastBackupTime, setLastBackupTime] = useState<Date | null>(null);
+  const backupIntervalRef = useRef<number | null>(null);
+
+  useEffect(() => { 
+    loadLibrary();
+    loadBackupConfiguration();
+  }, []);
+
+  // Auto Backup Interval Logic
+  useEffect(() => {
+    if (backupHandle) {
+      if (backupIntervalRef.current) window.clearInterval(backupIntervalRef.current);
+      
+      // Perform immediate backup
+      performBackup();
+
+      // Set interval (every 60 seconds)
+      backupIntervalRef.current = window.setInterval(performBackup, 60000);
+    }
+
+    return () => {
+      if (backupIntervalRef.current) window.clearInterval(backupIntervalRef.current);
+    };
+  }, [backupHandle]);
+
+  const loadBackupConfiguration = async () => {
+    try {
+       const savedHandle = await getBackupHandle();
+       if (savedHandle) {
+         // Check permissions
+         const perm = await savedHandle.queryPermission({ mode: 'readwrite' });
+         if (perm === 'granted') {
+           setBackupHandle(savedHandle);
+         } else {
+           // If permission is prompt/denied, we can't start automatically without gesture.
+           // Show notification to user to resume.
+           setNotifications(prev => [...prev, {
+             id: crypto.randomUUID(),
+             title: "Resume Backup",
+             message: "Click here to reconnect to your backup file.",
+             type: 'info',
+             action: 'VIEW_RESULT' // Abusing this type to trigger click handler for special logic
+           }]);
+           // Store handle temporarily to resume on click
+           (window as any).__pendingBackupHandle = savedHandle;
+         }
+       }
+    } catch (e) {
+      console.warn("Could not load backup config", e);
+    }
+  };
+
+  const resumeBackup = async () => {
+     const handle = (window as any).__pendingBackupHandle;
+     if (handle) {
+       const perm = await handle.requestPermission({ mode: 'readwrite' });
+       if (perm === 'granted') {
+         setBackupHandle(handle);
+         setNotifications(prev => prev.filter(n => n.title !== "Resume Backup"));
+         setFinishedNotification({
+            id: crypto.randomUUID(),
+            title: "Backup Resumed",
+            message: "Auto-backup is active.",
+            type: 'success'
+         });
+       }
+     }
+  };
+
+  const performBackup = async () => {
+    if (!backupHandle) return;
+    try {
+      await writeBackupToHandle(backupHandle);
+      setLastBackupTime(new Date());
+    } catch (e) {
+      console.error("Auto Backup Failed", e);
+      setBackupHandle(null); // Stop if permission lost
+      setNotifications(prev => [...prev, {
+        id: crypto.randomUUID(), 
+        title: "Backup Stopped", 
+        message: "Permission lost. Please re-configure in Settings.", 
+        type: 'error'
+      }]);
+    }
+  };
+
+  const handleSetupBackup = async () => {
+    if (!('showSaveFilePicker' in window)) {
+      alert("Your browser does not support the File System Access API. Please use Chrome, Edge, or Opera.");
+      return;
+    }
+    try {
+      // @ts-ignore
+      const handle = await window.showSaveFilePicker({
+        suggestedName: `scholarnote_autobackup.zip`,
+        types: [{
+          description: 'ScholarNote Backup',
+          accept: { 'application/zip': ['.zip'] },
+        }],
+      });
+      
+      // Store in IDB
+      await saveBackupHandle(handle);
+      setBackupHandle(handle);
+      
+      setNotifications(prev => [...prev, {
+        id: crypto.randomUUID(),
+        title: "Auto-Backup Configured",
+        message: `Backing up to ${handle.name}`,
+        type: 'success'
+      }]);
+    } catch (err) {
+      console.warn("Backup setup cancelled", err);
+    }
+  };
 
   const loadLibrary = async () => {
     try {
@@ -179,6 +295,13 @@ const App: React.FC = () => {
   };
 
   const handleNotificationClick = () => {
+    // Special handling for Resume Backup action
+    if (finishedNotification?.title === "Resume Backup" || finishedNotification?.message?.includes("reconnect")) {
+       resumeBackup();
+       setFinishedNotification(null);
+       return;
+    }
+
     if (finishedNotification?.action === 'VIEW_RESULT' && finishedNotification?.data) {
        setResultModalData({
          title: finishedNotification.title,
@@ -246,6 +369,15 @@ const App: React.FC = () => {
     return <div className="h-screen w-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-indigo-600" size={48} /></div>;
   }
 
+  // Handle special notification for resume backup if it exists in the queue but not yet finished
+  useEffect(() => {
+    const resumeMsg = notifications.find(n => n.title === "Resume Backup");
+    if (resumeMsg && !finishedNotification) {
+      setFinishedNotification(resumeMsg);
+    }
+  }, [notifications, finishedNotification]);
+
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
       {/* View Router */}
@@ -258,6 +390,8 @@ const App: React.FC = () => {
             onDeletePaper={handleDeletePaper} 
             onRenamePaper={handleRenamePaper} 
             onImportSuccess={loadLibrary}
+            onOpenSettings={() => setShowSettings(true)}
+            autoBackupStatus={{ active: !!backupHandle, lastBackup: lastBackupTime, fileName: backupHandle?.name }}
             isUploading={isUploading} 
           />
           
@@ -293,7 +427,16 @@ const App: React.FC = () => {
       )}
 
       {/* Settings Modal */}
-      {showSettings && <SettingsModal settings={settings} onSave={handleSaveSettings} onClose={() => setShowSettings(false)} />}
+      {showSettings && (
+        <SettingsModal 
+          settings={settings} 
+          onSave={handleSaveSettings} 
+          onClose={() => setShowSettings(false)}
+          backupHandleName={backupHandle?.name}
+          onSetupBackup={handleSetupBackup}
+          backupLastTime={lastBackupTime}
+        />
+      )}
 
       {/* Result Modal */}
       {resultModalData && (
@@ -310,8 +453,8 @@ const App: React.FC = () => {
           onClick={handleNotificationClick}
           className="fixed bottom-8 left-8 bg-white border border-slate-200 p-4 rounded-2xl shadow-2xl z-[200] flex items-center gap-4 cursor-pointer hover:scale-105 transition-transform animate-in slide-in-from-bottom-5"
         >
-           <div className={`p-2 rounded-full ${finishedNotification.type === 'success' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
-             <Bell size={20} />
+           <div className={`p-2 rounded-full ${finishedNotification.type === 'success' ? 'bg-green-100 text-green-600' : finishedNotification.type === 'error' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+             {finishedNotification.title === 'Resume Backup' ? <HardDrive size={20}/> : <Bell size={20} />}
            </div>
            <div>
              <h4 className="font-bold text-sm text-slate-900">{finishedNotification.title}</h4>
