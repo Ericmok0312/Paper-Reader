@@ -33,6 +33,14 @@ const NoteWindow: React.FC<NoteWindowProps> = ({ note, allGlobalTags, allNotes, 
     setComment(note.comment || '');
   }, [note.comment]);
 
+  // Auto-resize textarea
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
+  }, [comment]);
+
   // Dragging logic
   const [position, setPosition] = useState({ x: window.innerWidth / 2 - 200, y: 200 });
   const [isDragging, setIsDragging] = useState(false);
@@ -121,13 +129,13 @@ const NoteWindow: React.FC<NoteWindowProps> = ({ note, allGlobalTags, allNotes, 
       style={{ left: position.x, top: position.y }}
       className="fixed w-[400px] bg-white rounded-xl shadow-2xl border border-gray-200 z-[60] flex flex-col animate-in fade-in zoom-in-95 duration-150"
     >
-      <div onMouseDown={handleMouseDown} className="h-10 bg-slate-900 rounded-t-xl flex items-center justify-between px-3 cursor-move">
+      <div onMouseDown={handleMouseDown} className="h-10 bg-slate-900 rounded-t-xl flex items-center justify-between px-3 cursor-move shrink-0">
         <span className="text-white text-xs font-bold">Note</span>
         <button onClick={onClose} className="text-white/70 hover:text-white no-drag"><X size={16} /></button>
       </div>
 
       <div className="p-4 bg-white rounded-b-xl flex flex-col gap-3 no-drag">
-        <div className="bg-amber-50 border-l-2 border-amber-400 p-2 text-xs italic text-slate-700 max-h-24 overflow-y-auto rounded-r-md">
+        <div className="bg-amber-50 border-l-2 border-amber-400 p-2 text-xs italic text-slate-700 max-h-24 overflow-y-auto rounded-r-md shrink-0">
           "{note.quote}"
         </div>
 
@@ -137,7 +145,7 @@ const NoteWindow: React.FC<NoteWindowProps> = ({ note, allGlobalTags, allNotes, 
             value={comment}
             onChange={(e) => setComment(e.target.value)}
             placeholder="Type your notes..."
-            className="w-full h-32 p-3 text-sm bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 resize-none text-slate-800 placeholder-slate-400"
+            className="w-full min-h-[128px] p-3 text-sm bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 resize-none text-slate-800 placeholder-slate-400 overflow-hidden"
           />
           {comment.trim().length > 10 && (
             <button 
@@ -150,7 +158,7 @@ const NoteWindow: React.FC<NoteWindowProps> = ({ note, allGlobalTags, allNotes, 
           )}
         </div>
 
-        <div className="space-y-2">
+        <div className="space-y-2 shrink-0">
            <div className="flex justify-between items-center">
              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tags</span>
              <button 
@@ -226,7 +234,7 @@ const NoteWindow: React.FC<NoteWindowProps> = ({ note, allGlobalTags, allNotes, 
            </div>
         </div>
 
-        <div className="flex justify-between pt-3 border-t border-slate-100">
+        <div className="flex justify-between pt-3 border-t border-slate-100 shrink-0">
            {showDeleteConfirm ? (
               <div className="flex gap-2">
                  <button 

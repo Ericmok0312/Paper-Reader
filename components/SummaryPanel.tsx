@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Wand2, Save, X, BookOpenCheck, Eye, Edit3 } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Wand2, Save, X, BookOpenCheck, Eye, Edit3, GripVertical } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 interface SummaryPanelProps {
@@ -12,20 +12,72 @@ interface SummaryPanelProps {
 const SummaryPanel: React.FC<SummaryPanelProps> = ({ summary, onSave, onClose, onRequestAI }) => {
   const [text, setText] = useState(summary || '');
   const [mode, setMode] = useState<'edit' | 'preview'>('edit');
+  
+  // Resizable State
+  const [width, setWidth] = useState(400); // Default width
+  const [isResizing, setIsResizing] = useState(false);
+  const sidebarRef = useRef<HTMLDivElement>(null);
 
   // Sync state when parent summary updates (e.g. from AI)
   useEffect(() => {
     setText(summary || '');
   }, [summary]);
 
+  const startResizing = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  }, []);
+
+  const stopResizing = useCallback(() => {
+    setIsResizing(false);
+  }, []);
+
+  const resize = useCallback((mouseMoveEvent: MouseEvent) => {
+    if (isResizing) {
+      // Calculate width from the right edge of the screen
+      const newWidth = document.body.clientWidth - mouseMoveEvent.clientX;
+      if (newWidth > 300 && newWidth < 1200) { // Min/Max constraints
+        setWidth(newWidth);
+      }
+    }
+  }, [isResizing]);
+
+  useEffect(() => {
+    if (isResizing) {
+      window.addEventListener("mousemove", resize);
+      window.addEventListener("mouseup", stopResizing);
+    }
+    return () => {
+      window.removeEventListener("mousemove", resize);
+      window.removeEventListener("mouseup", stopResizing);
+    };
+  }, [isResizing, resize, stopResizing]);
+
   const handleAiReorg = () => {
     if (!text.trim()) return;
     onRequestAI('ORGANIZE_SUMMARY', { text });
-    // Notification will handle result and update props via App parent
   };
 
   return (
-    <div className="w-96 h-full bg-white border-l border-gray-200 flex flex-col shadow-xl z-30">
+    <div 
+      ref={sidebarRef}
+      style={{ width: width }}
+      className="h-full bg-white border-l border-gray-200 flex flex-col shadow-xl z-30 relative group"
+    >
+      {/* Drag Handle */}
+      <div
+        onMouseDown={startResizing}
+        className={`absolute left-0 top-0 bottom-0 w-1.5 cursor-ew-resize hover:bg-indigo-400 z-50 transition-colors ${isResizing ? 'bg-indigo-600' : 'bg-transparent'}`}
+      >
+        {/* Visual Grip Indicator centered vertically */}
+        <div className="absolute top-1/2 -translate-y-1/2 -left-1 opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 bg-white rounded shadow-sm border border-slate-200 p-0.5 pointer-events-none">
+           <GripVertical size={12} />
+        </div>
+      </div>
+
+      {/* Resize Overlay to prevent iframe/selection interference during drag */}
+      {isResizing && <div className="fixed inset-0 z-[100] cursor-ew-resize" />}
+
       <div className="h-14 border-b border-gray-200 flex items-center justify-between px-4 shrink-0 bg-white">
         <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
           <BookOpenCheck size={16} /> Paper Summary
