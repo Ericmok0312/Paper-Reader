@@ -20,9 +20,10 @@ interface ReaderProps {
   onUpdateSummary: (summary: string) => void;
   onRequestAI: (task: string, payload: any) => void;
   onSaveNote: (note: Note) => void;
+  onDeleteNote: (id: string) => void;
 }
 
-const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, allNotes, settings, onClose, onUpdateTags, onUpdateSummary, onRequestAI, onSaveNote }) => {
+const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, allNotes, settings, onClose, onUpdateTags, onUpdateSummary, onRequestAI, onSaveNote, onDeleteNote }) => {
   const [numPages, setNumPages] = useState<number | null>(null);
   const [scale, setScale] = useState(1.2);
   const [notes, setNotes] = useState<Note[]>(initialNotes);
@@ -102,6 +103,16 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
     onSaveNote(updatedNote);
     // NoteWindow will close itself if we want, or we can manage close here.
     // Usually NoteWindow logic handles onClose.
+  };
+
+  const handleDeleteLocalNote = (id: string) => {
+    onDeleteNote(id);
+    setNotes(prev => prev.filter(n => n.id !== id));
+    setOpenNoteIds(prev => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
   };
 
   const toggleNoteWindow = (id: string) => {
@@ -249,6 +260,7 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
               allGlobalTags={allGlobalTags}
               allNotes={allNotes}
               onSave={handleNoteSave}
+              onDelete={() => handleDeleteLocalNote(id)}
               onClose={() => toggleNoteWindow(id)}
               onRequestAI={onRequestAI}
             />

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Paper, PaperMetadata, Note, ViewState, AppSettings, NotificationItem } from './types';
-import { savePaper, getAllPapersMetadata, getPaperById, getNotesByPaperId, deletePaper, updatePaperTitle, saveNote, updatePaperSummary, writeBackupToHandle, getBackupHandle, saveBackupHandle, updatePaperTags } from './lib/db';
+import { savePaper, getAllPapersMetadata, getPaperById, getNotesByPaperId, deletePaper, updatePaperTitle, saveNote, updatePaperSummary, writeBackupToHandle, getBackupHandle, saveBackupHandle, updatePaperTags, deleteNote } from './lib/db';
 import { suggestTagsAI, organizeSummaryAI, reorganizeNoteAI } from './lib/ai';
 import Dashboard from './components/Dashboard';
 import Reader from './components/Reader';
@@ -197,6 +197,12 @@ const App: React.FC = () => {
       if (exists) return prev.map(n => n.id === note.id ? note : n);
       return [...prev, note];
     });
+  };
+
+  const handleDeleteNote = async (id: string) => {
+    await deleteNote(id);
+    setCurrentNotes(prev => prev.filter(n => n.id !== id));
+    setAllNotesForGraph(prev => prev.filter(n => n.id !== id));
   };
 
   const handleUpdateSummary = async (newSummary: string) => {
@@ -428,6 +434,7 @@ const App: React.FC = () => {
           onUpdateSummary={handleUpdateSummary}
           onRequestAI={handleAIRequest}
           onSaveNote={handleSaveNote}
+          onDeleteNote={handleDeleteNote}
         />
       )}
 

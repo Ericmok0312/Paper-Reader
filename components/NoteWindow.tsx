@@ -1,22 +1,24 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Note } from '../types';
-import { X, Save, Wand2, Tag, Search, Check } from 'lucide-react';
+import { X, Save, Wand2, Tag, Search, Check, Trash2, AlertTriangle } from 'lucide-react';
 
 interface NoteWindowProps {
   note: Note;
   allGlobalTags: string[];
   allNotes: Note[];
   onSave: (note: Note) => void;
+  onDelete: () => void;
   onClose: () => void;
   onRequestAI: (task: string, payload: any) => void;
 }
 
-const NoteWindow: React.FC<NoteWindowProps> = ({ note, allGlobalTags, allNotes, onSave, onClose, onRequestAI }) => {
+const NoteWindow: React.FC<NoteWindowProps> = ({ note, allGlobalTags, allNotes, onSave, onDelete, onClose, onRequestAI }) => {
   const [comment, setComment] = useState(note.comment);
   const [tags, setTags] = useState<string[]>(note.tags || []);
   const [tagInput, setTagInput] = useState('');
   const [isAutoTagging, setIsAutoTagging] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const windowRef = useRef<HTMLDivElement>(null);
@@ -101,6 +103,16 @@ const NoteWindow: React.FC<NoteWindowProps> = ({ note, allGlobalTags, allNotes, 
   const handleSave = () => {
     onSave({ ...note, comment, tags });
     onClose();
+  };
+  
+  const handleDeleteClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowDeleteConfirm(true);
+  };
+
+  const handleConfirmDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onDelete();
   };
 
   return (
@@ -214,7 +226,33 @@ const NoteWindow: React.FC<NoteWindowProps> = ({ note, allGlobalTags, allNotes, 
            </div>
         </div>
 
-        <div className="flex justify-end pt-3 border-t border-slate-100">
+        <div className="flex justify-between pt-3 border-t border-slate-100">
+           {showDeleteConfirm ? (
+              <div className="flex gap-2">
+                 <button 
+                   onClick={handleConfirmDelete} 
+                   className="bg-red-600 text-white px-3 py-2 rounded text-xs font-bold hover:bg-red-700 flex items-center gap-1 animate-in zoom-in"
+                 >
+                   <AlertTriangle size={12} /> Confirm
+                 </button>
+                 <button 
+                   onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(false); }}
+                   className="text-slate-500 hover:bg-slate-100 px-2 py-2 rounded text-xs"
+                 >
+                   Cancel
+                 </button>
+              </div>
+           ) : (
+             <button 
+               type="button"
+               onClick={handleDeleteClick}
+               className="text-slate-400 hover:text-red-600 hover:bg-red-50 p-2 rounded transition-colors group"
+               title="Delete Note"
+             >
+               <Trash2 size={16} className="group-active:scale-95 pointer-events-none" />
+             </button>
+           )}
+           
           <button onClick={handleSave} className="bg-slate-900 text-white px-5 py-2 rounded-lg text-xs font-bold hover:bg-slate-800 flex items-center gap-2 shadow-lg shadow-slate-200 transition-all active:scale-95">
             <Save size={14} /> Save Note
           </button>
