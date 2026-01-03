@@ -1,0 +1,5 @@
+{
+  "name": "ScholarNote",
+  "description": "A focused academic paper reader and organizer. Upload PDFs, organize with tags, highlight key sections, and take persistent notes. Features AI-powered summaries and text explanations.",
+  "requestFramePermissions": []
+}
