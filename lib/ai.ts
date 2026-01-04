@@ -35,7 +35,7 @@ Return JSON format: { "summary": "markdown string" }`,
 Existing Knowledge Tags: {{globalTags}}
 
 **TASK:**
-1. Identify the logical sections (Introduction, Methods, Results, Discussion).
+1. Identify the sections defined in the paper.
 2. For EACH section, extract exactly 3-4 critical Anchor Points.
    - Do NOT extract more than 4 per section.
    - Do NOT extract fewer than 3 per section (unless the section is very short).
