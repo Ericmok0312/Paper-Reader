@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { Paper, Note, HighlightArea, AppSettings } from '../types';
@@ -129,7 +128,7 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
         x: (r.left - pageRect.left) / pageRect.width * 100,
         y: (r.top - pageRect.top) / pageRect.height * 100,
         width: r.width / pageRect.width * 100,
-        height: r.width / pageRect.width * 100
+        height: r.height / pageRect.height * 100
       }));
 
       setSelection({ text, rect, pageNumber, highlightAreas });
@@ -185,7 +184,6 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
     });
   };
 
-  // Improved: Returns solid colors to be used with a semi-transparent group parent
   const getHighlightBaseColor = (color: string): string => {
     switch (color) {
       case 'green': return 'bg-emerald-400';
@@ -240,11 +238,9 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
 
         spans.forEach((span, idx) => {
             const textContent: string = span.textContent || "";
-            // Fix: Use Array.from to ensure character iteration is clearly typed as string to avoid 'unknown' issues
             for (const char of Array.from(textContent)) {
                 const norm = normalizeChar(char);
                 if (norm) { 
-                    // Fix: Ensure internal iteration of normalized characters is also type-safe
                     for (const n of Array.from(norm)) {
                       fullPageText += n;
                       charMap.push({ spanIndex: idx });
@@ -260,7 +256,6 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
 
             if (note.quote.includes(' ... ')) {
               const parts = note.quote.split(' ... ');
-              // Fix: Use Array.from and explicit map callback for robust string type inference
               const startSnippet = Array.from(parts[0] || '').map(c => normalizeChar(c)).join('');
               const endSnippet = Array.from(parts[1] || '').map(c => normalizeChar(c)).join('');
 
@@ -294,7 +289,6 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
                   }
               }
             } else {
-              // Fix: Use Array.from and explicit map callback for robust string type inference
               const cleanQuote = Array.from(note.quote).map(c => normalizeChar(c)).join('');
               const idx = fullPageText.indexOf(cleanQuote);
               if (idx !== -1) {
@@ -406,25 +400,13 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
                     
                     <div className="absolute inset-0 z-10 pointer-events-none">
                       {highlightedNotes.map(note => (
-                        <div 
-                          key={note.id} 
-                          className="absolute inset-0 opacity-40 mix-blend-multiply group/note pointer-events-none"
-                        >
+                        <div key={note.id} className="absolute inset-0 opacity-40 mix-blend-multiply group/note pointer-events-none">
                           {(note.highlightAreas || []).map((area, idx) => (
                              <div 
                                key={idx} 
                                onClick={(e) => { e.stopPropagation(); toggleNoteWindow(note.id); }} 
-                               className={clsx(
-                                 "absolute transition-colors cursor-pointer pointer-events-auto rounded-[1px]", 
-                                 getHighlightBaseColor(note.color),
-                                 "hover:brightness-95"
-                               )} 
-                               style={{ 
-                                 left: `${area.x}%`, 
-                                 top: `${area.y}%`, 
-                                 width: `${area.width}%`, 
-                                 height: `${area.height}%` 
-                               }} 
+                               className={clsx("absolute transition-colors cursor-pointer pointer-events-auto rounded-[1px]", getHighlightBaseColor(note.color), "hover:brightness-95")} 
+                               style={{ left: `${area.x}%`, top: `${area.y}%`, width: `${area.width}%`, height: `${area.height}%` }} 
                              />
                           ))}
                         </div>
@@ -459,15 +441,9 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
       <div className="fixed bottom-6 left-6 bg-white/90 backdrop-blur border border-slate-200 p-3 rounded-lg shadow-lg z-40 text-xs">
           <h4 className="font-bold text-slate-500 mb-2 uppercase tracking-wider text-[10px]">Highlight Legend</h4>
           <div className="flex flex-col gap-1.5">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-rose-400"></div> <span className="text-slate-700">Critical Importance</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-sky-400"></div> <span className="text-slate-700">High Importance</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-yellow-400"></div> <span className="text-slate-700">Standard / Insight</span>
-            </div>
+            <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-rose-400"></div> <span className="text-slate-700">Critical Importance</span></div>
+            <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-sky-400"></div> <span className="text-slate-700">High Importance</span></div>
+            <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-yellow-400"></div> <span className="text-slate-700">Standard / Insight</span></div>
           </div>
       </div>
 
