@@ -23,10 +23,18 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onClose, onSave
   
   const [activeTab, setActiveTab] = useState<'general' | 'prompts' | 'backup' | 'ai'>('general');
   const [hasApiKey, setHasApiKey] = useState<boolean>(false);
+  const [isAiStudioAvailable, setIsAiStudioAvailable] = useState<boolean>(false);
 
   useEffect(() => {
     // @ts-ignore
-    window.aistudio.hasSelectedApiKey().then(setHasApiKey);
+    const aiStudio = typeof window !== 'undefined' ? (window as any).aistudio : null;
+    if (aiStudio && typeof aiStudio.hasSelectedApiKey === 'function') {
+      setIsAiStudioAvailable(true);
+      aiStudio.hasSelectedApiKey().then(setHasApiKey);
+    } else if (process.env.API_KEY) {
+      // If we're local and have a key in env, treat as "connected"
+      setHasApiKey(true);
+    }
   }, []);
 
   const handleSave = () => {
@@ -44,10 +52,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onClose, onSave
 
   const handleSwitchKey = async () => {
     // @ts-ignore
-    await window.aistudio.openSelectKey();
-    // @ts-ignore
-    const has = await window.aistudio.hasSelectedApiKey();
-    setHasApiKey(has);
+    const aiStudio = (window as any).aistudio;
+    if (aiStudio && typeof aiStudio.openSelectKey === 'function') {
+      await aiStudio.openSelectKey();
+      const has = await aiStudio.hasSelectedApiKey();
+      setHasApiKey(has);
+    }
   };
 
   const renderGeneralSettings = () => (
@@ -76,9 +86,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onClose, onSave
              <Key size={24} />
           </div>
           <div>
-            <h3 className="font-bold text-slate-900 text-sm">Gemini API Key</h3>
+            <h3 className="font-bold text-slate-900 text-sm">Gemini API Configuration</h3>
             <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-              ScholarNote uses your personal Google Cloud project to power AI features.
+              {isAiStudioAvailable 
+                ? "ScholarNote uses your personal Google Cloud project to power AI features via the AI Studio bridge."
+                : "ScholarNote is using the API Key configured in your environment (.env.local)."}
             </p>
           </div>
         </div>
@@ -87,32 +99,34 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onClose, onSave
           {hasApiKey ? (
             <div className="flex items-center gap-2 text-emerald-600 bg-emerald-50 px-3 py-2 rounded-lg border border-emerald-100">
               <CheckCircle2 size={16} />
-              <span className="text-xs font-bold">API Key Connected</span>
+              <span className="text-xs font-bold">API Key Detected</span>
             </div>
           ) : (
             <div className="flex items-center gap-2 text-amber-600 bg-amber-50 px-3 py-2 rounded-lg border border-amber-100">
               <AlertTriangle size={16} />
-              <span className="text-xs font-bold">No API Key Selected</span>
+              <span className="text-xs font-bold">No API Key Configured</span>
             </div>
           )}
 
-          <div className="flex flex-col gap-2">
-            <button 
-              onClick={handleSwitchKey}
-              className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-sm transition-colors flex items-center justify-center gap-2"
-            >
-              <Key size={14} /> {hasApiKey ? 'Switch Project/Key' : 'Select API Key'}
-            </button>
-            
-            <a 
-              href="https://ai.google.dev/gemini-api/docs/billing" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="text-[10px] text-indigo-600 hover:underline flex items-center justify-center gap-1 font-medium mt-1"
-            >
-              Learn about Gemini API billing <ExternalLink size={10} />
-            </a>
-          </div>
+          {isAiStudioAvailable && (
+            <div className="flex flex-col gap-2">
+              <button 
+                onClick={handleSwitchKey}
+                className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-sm transition-colors flex items-center justify-center gap-2"
+              >
+                <Key size={14} /> {hasApiKey ? 'Switch Project/Key' : 'Select API Key'}
+              </button>
+              
+              <a 
+                href="https://ai.google.dev/gemini-api/docs/billing" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-[10px] text-indigo-600 hover:underline flex items-center justify-center gap-1 font-medium mt-1"
+              >
+                Learn about Gemini API billing <ExternalLink size={10} />
+              </a>
+            </div>
+          )}
         </div>
       </div>
 

@@ -90,17 +90,19 @@ let currentKeyIndex = 0;
  * Supports rotation if multiple keys are available.
  */
 const getClient = async (forceNext = false): Promise<GoogleGenAI> => {
-  // @ts-ignore - defined in global context
-  const hasKey = await window.aistudio.hasSelectedApiKey();
-  if (!hasKey) {
-    // @ts-ignore
-    await window.aistudio.openSelectKey();
-    // Proceed as per race condition mitigation guidelines
+  // @ts-ignore - Check if window.aistudio exists before calling
+  const aiStudio = typeof window !== 'undefined' ? (window as any).aistudio : null;
+  
+  if (aiStudio && typeof aiStudio.hasSelectedApiKey === 'function') {
+    const hasKey = await aiStudio.hasSelectedApiKey();
+    if (!hasKey && typeof aiStudio.openSelectKey === 'function') {
+      await aiStudio.openSelectKey();
+    }
   }
   
   const keys = getAvailableKeys();
   if (keys.length === 0) {
-    throw new Error("API Key selection is required to use AI features.");
+    throw new Error("API Key selection is required to use AI features. Please check your .env.local file.");
   }
   
   if (forceNext) {
@@ -137,13 +139,16 @@ async function callAi<T>(operation: (ai: GoogleGenAI) => Promise<T>): Promise<T>
         continue;
       }
 
-      // If it was a "not found" error and we've exhausted env keys, prompt user to select/fix via dialog
+      // If it was a "not found" error and we've exhausted env keys, try prompting user if available
       if (isNotFoundError) {
         // @ts-ignore
-        await window.aistudio.openSelectKey();
-        // One final try after user interaction with the primary process.env.API_KEY
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        return await operation(ai);
+        const aiStudio = typeof window !== 'undefined' ? (window as any).aistudio : null;
+        if (aiStudio && typeof aiStudio.openSelectKey === 'function') {
+           await aiStudio.openSelectKey();
+           // One final try after user interaction
+           const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+           return await operation(ai);
+        }
       }
       
       break;
