@@ -48,10 +48,6 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   
-  // AI Analysis State
-  const [analyzingPaperId, setAnalyzingPaperId] = useState<string | null>(null);
-  const [analyzeStatus, setAnalyzeStatus] = useState<string>('');
-
   // Local tags for filtering (only paper tags)
   const allPaperTags = Array.from(new Set(papers.flatMap(p => p.tags)));
 
@@ -143,74 +139,6 @@ const Dashboard: React.FC<DashboardProps> = ({
       e.target.value = ''; // Reset input
     }
   };
-  
-  const handleAnalyzePaper = async (id: string) => {
-    setAnalyzingPaperId(id);
-    setAnalyzeStatus("Reading...");
-    try {
-      // 1. Fetch full paper with file data
-      const paper = await getPaperById(id);
-      if (!paper || !paper.fileData) throw new Error("Paper data not found");
-
-      // 2. Load Settings
-      const savedSettings = localStorage.getItem('appSettings');
-      const settings = savedSettings ? JSON.parse(savedSettings) : undefined;
-      
-      // 3. Phase 1: Summary
-      setAnalyzeStatus("Summarizing...");
-      const summary = await analyzePaperSummary(paper.fileData, settings);
-      if (summary) {
-        await updatePaperSummary(id, summary);
-      }
-
-      // 4. Phase 2: Highlights
-      setAnalyzeStatus("Highlighting...");
-      const highlights = await analyzePaperHighlights(paper.fileData, globalTags, settings);
-
-      if (highlights && Array.isArray(highlights)) {
-        for (const hl of highlights) {
-           // Strict Tag Sanitization
-            let topicTag = hl.topic ? hl.topic.trim() : "Insight";
-            topicTag = topicTag.replace(/[.,;:]$/, '');
-            if (topicTag.length > 25 || topicTag.split(' ').length > 4) {
-               topicTag = "Key Insight";
-            }
-          
-            const tags = [topicTag, 'AI-Highlight'];
-
-          // Map Importance to Color
-          const importance = (hl.importance || 'Standard').trim();
-          const importanceLower = importance.toLowerCase();
-          let color: 'red' | 'blue' | 'yellow' = 'yellow';
-          if (importanceLower.includes('crit')) color = 'red';
-          else if (importanceLower.includes('high')) color = 'blue';
-
-          const newNote: Note = {
-            id: crypto.randomUUID(),
-            paperId: id,
-            pageNumber: hl.pageNumber || 1, 
-            quote: `${hl.anchorStart} ... ${hl.anchorEnd}`,
-            comment: hl.explanation || "Important point identified by AI.",
-            tags: tags,
-            highlightAreas: [],
-            createdAt: Date.now(),
-            color: color,
-            importance: importance
-          };
-          await saveNote(newNote);
-        }
-      }
-      
-      alert(`Analysis Complete!\nSummary updated.\n${highlights?.length || 0} highlights added.`);
-      
-    } catch (error) {
-      console.error(error);
-      alert("Failed to analyze paper. Ensure AI is configured correctly.");
-    } finally {
-      setAnalyzingPaperId(null);
-      setAnalyzeStatus("");
-    }
-  };
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -245,13 +173,11 @@ const Dashboard: React.FC<DashboardProps> = ({
             </h3>
             
             <div className="space-y-3">
-              {/* Auto Backup Status */}
               <div className={`rounded-lg p-3 border transition-colors ${autoBackupStatus.active ? 'bg-emerald-50 border-emerald-100' : 'bg-slate-50 border-slate-100'}`}>
                 <div className="flex justify-between items-start mb-1">
                    <div className="text-xs font-bold text-slate-700">Auto-Backup</div>
                    <div className={`h-2 w-2 rounded-full ${autoBackupStatus.active ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></div>
                 </div>
-                
                 {autoBackupStatus.active ? (
                    <div>
                      <p className="text-[10px] text-emerald-700 font-medium">Active</p>
@@ -266,7 +192,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                 )}
               </div>
 
-              {/* Manual Actions */}
               <div className="grid grid-cols-2 gap-2">
                 <button 
                   onClick={handleExport} 
@@ -275,7 +200,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                 >
                   <Download size={14} /> Download ZIP
                 </button>
-                
                 <label className="cursor-pointer flex flex-col items-center justify-center gap-1 px-2 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold transition-colors">
                   <Archive size={14} /> Restore ZIP
                   <input type="file" accept=".zip" className="hidden" onChange={handleImport} disabled={isImporting} />
@@ -284,7 +208,6 @@ const Dashboard: React.FC<DashboardProps> = ({
             </div>
           </div>
 
-          {/* Filters Card */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
             <div className="relative mb-4">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
@@ -324,14 +247,10 @@ const Dashboard: React.FC<DashboardProps> = ({
                   {tag}
                 </button>
               ))}
-              {allPaperTags.length === 0 && (
-                <span className="text-gray-400 text-xs italic">No tags yet</span>
-              )}
             </div>
           </div>
         </div>
 
-        {/* Main Grid */}
         <div className="lg:col-span-3">
           {filteredPapers.length === 0 ? (
             <div className="text-center py-20 bg-white rounded-xl border border-dashed border-gray-300">
@@ -344,11 +263,11 @@ const Dashboard: React.FC<DashboardProps> = ({
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {filteredPapers.map(paper => (
-                <div key={paper.id} className="group bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition-shadow flex flex-col justify-between relative overflow-hidden">
+                <div key={paper.id} className="group bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition-shadow flex flex-col justify-between relative overflow-visible">
                   
-                  {/* Inline Deletion Overlay */}
+                  {/* Inline Deletion Overlay - Using a more robust z-index and portal-like positioning if needed */}
                   {paperToDeleteId === paper.id && (
-                    <div className="absolute inset-0 bg-white/95 backdrop-blur-[2px] z-[100] flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in-95 duration-200">
+                    <div className="absolute inset-0 bg-white/95 backdrop-blur-[2px] z-[100] flex flex-col items-center justify-center p-6 text-center rounded-xl border-2 border-red-50 animate-in fade-in zoom-in-95 duration-200">
                       <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-3">
                         <AlertCircle size={24} />
                       </div>
@@ -372,15 +291,13 @@ const Dashboard: React.FC<DashboardProps> = ({
                   )}
 
                   <div>
-                    {/* Header Row: Icon, Actions */}
                     <div className="flex justify-between items-start mb-2">
                       <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600">
                         <FileText size={24} />
                       </div>
                       
-                      {/* Actions */}
                       <div className="flex gap-1 relative z-[50]">
-                         <button 
+                        <button 
                           onClick={(e) => { e.preventDefault(); e.stopPropagation(); startEditing(paper); }}
                           className="text-gray-400 hover:text-indigo-600 p-1.5 rounded-md hover:bg-indigo-50 transition-colors cursor-pointer"
                           title="Rename Paper"
@@ -397,7 +314,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                       </div>
                     </div>
                     
-                    {/* Title Editing */}
                     {editingPaperId === paper.id ? (
                       <div className="mb-2 flex items-center gap-2 relative z-20">
                         <input
@@ -422,7 +338,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                       </h3>
                     )}
 
-                    {/* Tags Area */}
                     {tagEditId === paper.id ? (
                       <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm mb-2 relative z-20" onClick={e => e.stopPropagation()}>
                         <div className="flex flex-wrap gap-1 mb-2">
@@ -478,17 +393,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                       Added {new Date(paper.uploadedAt).toLocaleDateString()}
                     </span>
                     <div className="flex items-center gap-2">
-                       {/* AI Analysis Button */}
-                       <button
-                         onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleAnalyzePaper(paper.id); }}
-                         className={`inline-flex items-center gap-1.5 text-xs font-bold px-2 py-1.5 rounded-lg transition-colors ${analyzingPaperId === paper.id ? 'bg-indigo-100 text-indigo-700 cursor-not-allowed' : 'text-indigo-600 hover:bg-indigo-50'}`}
-                         disabled={!!analyzingPaperId}
-                         title="AI Analyze Paper (Generate Summary & Highlights)"
-                       >
-                         {analyzingPaperId === paper.id ? <Loader2 size={14} className="animate-spin"/> : <Sparkles size={14} />}
-                         {analyzingPaperId === paper.id ? (analyzeStatus || 'Analyzing...') : 'Analyze'}
-                       </button>
-
                       <button 
                         onClick={() => onSelectPaper(paper.id)}
                         className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-900 hover:text-indigo-600"

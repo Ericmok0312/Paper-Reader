@@ -1,3 +1,4 @@
+// Fixed: Removed redundant and malformed type definitions from imports that were causing compilation errors.
 import React, { useEffect, useState, useRef } from 'react';
 import { Paper, PaperMetadata, Note, ViewState, AppSettings, NotificationItem } from './types';
 import { savePaper, getAllPapersMetadata, getPaperById, getNotesByPaperId, deletePaper, updatePaperTitle, saveNote, updatePaperSummary, updatePaperAISummary, writeBackupToHandle, getBackupHandle, saveBackupHandle, updatePaperTags, deleteNote } from './lib/db';
@@ -7,7 +8,7 @@ import Reader from './components/Reader';
 import KnowledgeGraph from './components/KnowledgeGraph';
 import SettingsModal from './components/SettingsModal';
 import ResultModal from './components/ResultModal';
-import { Loader2, Share2, Settings, Bell, HardDrive, BrainCircuit, Sparkles } from 'lucide-react';
+import { Loader2, Share2, Settings, Bell, HardDrive, BrainCircuit, Sparkles, AlertCircle, X } from 'lucide-react';
 
 const DEFAULT_SETTINGS: AppSettings = {
   highlightColor: 'yellow'
@@ -25,6 +26,9 @@ const App: React.FC = () => {
   
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisStatus, setAnalysisStatus] = useState<string>("");
+  
+  // AI Consent State
+  const [pendingAnalysisId, setPendingAnalysisId] = useState<string | null>(null);
 
   const [settings, setSettings] = useState<AppSettings>(() => {
     const saved = localStorage.getItem('appSettings');
@@ -33,7 +37,6 @@ const App: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [finishedNotification, setFinishedNotification] = useState<NotificationItem | null>(null);
-  const [resultModalData, setResultModalData] = useState<{ title: string, data: any } | null>(null);
 
   const [backupHandle, setBackupHandle] = useState<any>(null);
   const [lastBackupTime, setLastBackupTime] = useState<Date | null>(null);
@@ -135,15 +138,26 @@ const App: React.FC = () => {
       setCurrentPaper({ ...currentPaper, aiSummary: newSummary });
     }
   };
+
+  const handleRenamePaper = async (id: string, newTitle: string) => {
+    await updatePaperTitle(id, newTitle);
+    // Explicitly update papers state immediately
+    setPapers(prev => prev.map(p => p.id === id ? { ...p, title: newTitle } : p));
+    if (currentPaper?.id === id) {
+      setCurrentPaper(prev => prev ? { ...prev, title: newTitle } : null);
+    }
+  };
   
   const handleDeletePaper = async (id: string) => {
-    // Confirmation is now handled in the Dashboard component via state
+    // Delete from state immediately for responsive UI
     setPapers(prev => prev.filter(p => p.id !== id));
     try {
       await deletePaper(id);
+      // Also update all notes list for graph consistency
+      setAllNotesForGraph(prev => prev.filter(n => n.paperId !== id));
     } catch (error) {
       console.error("Failed to delete paper from DB:", error);
-      loadLibrary(); // Reload on error to restore the UI state if needed
+      loadLibrary(); // Fallback reload
     }
   };
 
@@ -151,7 +165,6 @@ const App: React.FC = () => {
     const notifId = crypto.randomUUID();
     setNotifications(prev => [...prev, { id: notifId, title: 'AI Working...', message: 'Background task in progress', type: 'info' }]);
     try {
-      let result;
       let title = "Task Complete";
       if (task === 'SUGGEST_TAGS') {
         const tags = await suggestTagsAI(payload.text, payload.globalTags, payload.currentTags, settings);
@@ -162,7 +175,6 @@ const App: React.FC = () => {
             await handleSaveNote(updatedNote);
           }
         }
-        result = { tags };
       } else if (task === 'ORGANIZE_SUMMARY') {
         const summary = await organizeSummaryAI(payload.text, settings);
         await handleUpdateSummary(summary);
@@ -179,10 +191,74 @@ const App: React.FC = () => {
     }
   };
 
+  const startDeepAnalysis = async (paperId: string) => {
+    setIsAnalyzing(true);
+    setPendingAnalysisId(null);
+    setAnalysisStatus("Initializing deep paper analysis...");
+    try {
+      const paper = await getPaperById(paperId);
+      if (!paper) throw new Error("Paper not found");
+
+      // Phase 1: Summary
+      setAnalysisStatus("Phase 1: Generating scholarly summary...");
+      const aiSummary = await analyzePaperSummary(paper.fileData, settings);
+      if (aiSummary) {
+        await updatePaperAISummary(paperId, aiSummary);
+        if (currentPaper?.id === paperId) {
+          setCurrentPaper(prev => prev ? { ...prev, aiSummary } : null);
+        }
+      }
+
+      // Phase 2: Highlights
+      setAnalysisStatus("Phase 2: Extracting structural anchor points...");
+      const highlights = await analyzePaperHighlights(paper.fileData, allTags, settings);
+      
+      if (highlights && Array.isArray(highlights)) {
+         for (const hl of highlights) {
+            const importance = (hl.importance || 'Standard').trim();
+            const importanceLower = importance.toLowerCase();
+            let color: 'red' | 'blue' | 'yellow' = 'yellow';
+            if (importanceLower.includes('crit')) color = 'red';
+            else if (importanceLower.includes('high')) color = 'blue';
+
+            let topicTag = hl.topic ? hl.topic.trim() : "Insight";
+            topicTag = topicTag.replace(/[.,;:]$/, '');
+            if (topicTag.length > 25 || topicTag.split(' ').length > 4) topicTag = "Key Insight";
+            
+            const tags = [topicTag, 'AI-Highlight'];
+            const newNote: Note = {
+              id: crypto.randomUUID(),
+              paperId: paperId,
+              pageNumber: hl.pageNumber || 1,
+              quote: `${hl.anchorStart} ... ${hl.anchorEnd}`, 
+              comment: hl.explanation || "Insight identified by AI.",
+              tags: tags,
+              highlightAreas: [],
+              createdAt: Date.now(),
+              color: color,
+              importance: importance
+            };
+            await saveNote(newNote);
+         }
+      }
+      
+      setAnalysisStatus("Analysis complete.");
+      // If we are already in the reader for this paper, refresh notes
+      if (currentPaper?.id === paperId) {
+        const updatedNotes = await getNotesByPaperId(paperId);
+        setCurrentNotes(updatedNotes);
+      }
+      loadLibrary(); // Sync dashboard tags
+    } catch (e) {
+      console.error(e);
+      alert("Scholar AI encountered a processing limit.");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   const handleUpload = async (file: File) => {
     setIsUploading(true);
-    setIsAnalyzing(true);
-    setAnalysisStatus("Uploading paper and initializing Scholar AI...");
     try {
       const arrayBuffer = await file.arrayBuffer();
       const newPaper: Paper = {
@@ -197,66 +273,14 @@ const App: React.FC = () => {
       await savePaper(newPaper);
       await loadLibrary();
       
-      setIsUploading(false);
-
-      // Phase 1: Summary
-      setAnalysisStatus("Phase 1 of 2: Generating Deep Executive Summary...");
-      const aiSummary = await analyzePaperSummary(arrayBuffer, settings);
-      if (aiSummary) await updatePaperAISummary(newPaper.id, aiSummary);
-
-      // Phase 2: Ranked Highlights
-      setAnalysisStatus("Phase 2 of 2: Identifying Sectional Anchor Points...");
-      const highlights = await analyzePaperHighlights(arrayBuffer, allTags, settings);
-      
-      if (highlights && Array.isArray(highlights)) {
-         setAnalysisStatus(`Anchoring ${highlights.length} technical insights across sections...`);
-         for (const hl of highlights) {
-            const importance = (hl.importance || 'Standard').trim();
-            const importanceLower = importance.toLowerCase();
-            let color: 'red' | 'blue' | 'yellow' = 'yellow';
-            
-            if (importanceLower.includes('crit')) color = 'red';
-            else if (importanceLower.includes('high')) color = 'blue';
-
-            // Strict Tag Sanitization to prevent AI hallucinations
-            let topicTag = hl.topic ? hl.topic.trim() : "Insight";
-            // Remove any trailing periods or non-alphanumeric chars
-            topicTag = topicTag.replace(/[.,;:]$/, '');
-            
-            // Hard limit: If tag is too long (hallucinated sentence), fallback to generic
-            if (topicTag.length > 25 || topicTag.split(' ').length > 4) {
-               topicTag = "Key Insight";
-            }
-            
-            const tags = [topicTag, 'AI-Highlight'];
-
-            const newNote: Note = {
-              id: crypto.randomUUID(),
-              paperId: newPaper.id,
-              pageNumber: hl.pageNumber || 1,
-              // Storing as snippet pattern for the Reader's regex matcher
-              quote: `${hl.anchorStart} ... ${hl.anchorEnd}`, 
-              comment: hl.explanation || "Insight identified by AI.",
-              tags: tags,
-              highlightAreas: [],
-              createdAt: Date.now(),
-              color: color,
-              importance: importance
-            };
-            await saveNote(newNote);
-         }
-      }
-      
-      setAnalysisStatus("Analysis complete! Opening reader...");
+      // Instead of immediate analysis, set pending
+      setPendingAnalysisId(newPaper.id);
+      // Auto-open reader
       await handleSelectPaper(newPaper.id);
-
     } catch (e) { 
       console.error(e);
-      alert("Scholar AI encountered a processing limit. Opening standard reader view.");
-      const meta = (await getAllPapersMetadata()).find(p => p.fileName === file.name);
-      if (meta) await handleSelectPaper(meta.id);
+      alert("Failed to save paper.");
     } finally { 
-      setIsAnalyzing(false);
       setIsUploading(false);
     }
   };
@@ -286,17 +310,9 @@ const App: React.FC = () => {
            </div>
            <h2 className="text-2xl font-black mb-3 tracking-tight">Deep Reading Analysis</h2>
            <p className="text-slate-400 text-sm leading-relaxed mb-8 h-10">{analysisStatus}</p>
-           
            <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden shadow-inner">
              <div className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 animate-progress origin-left"></div>
            </div>
-           
-           <div className="grid grid-cols-3 gap-2 w-full mt-10 opacity-50">
-             <div className="h-1 bg-slate-700 rounded"></div>
-             <div className="h-1 bg-slate-700 rounded"></div>
-             <div className="h-1 bg-slate-700 rounded"></div>
-           </div>
-           <p className="text-[10px] text-slate-500 mt-6 uppercase font-bold tracking-widest">Model: Gemini 3 Flash</p>
         </div>
       </div>
     );
@@ -310,7 +326,7 @@ const App: React.FC = () => {
             papers={papers} 
             globalTags={allTags}
             onUpload={handleUpload} onSelectPaper={handleSelectPaper} 
-            onDeletePaper={handleDeletePaper} onRenamePaper={updatePaperTitle} onUpdateTags={updatePaperTags}
+            onDeletePaper={handleDeletePaper} onRenamePaper={handleRenamePaper} onUpdateTags={updatePaperTags}
             onImportSuccess={loadLibrary} autoBackupStatus={{ active: !!backupHandle && !backupPermissionNeeded, lastBackup: lastBackupTime }}
             isUploading={isUploading} 
           />
@@ -326,7 +342,9 @@ const App: React.FC = () => {
       {view === ViewState.READER && currentPaper && (
         <Reader 
           paper={currentPaper} initialNotes={currentNotes} allGlobalTags={allTags} allNotes={allNotesForGraph} settings={settings}
-          onClose={() => { setView(ViewState.LIBRARY); loadLibrary(); }} onUpdateTags={(t) => updatePaperTags(currentPaper.id, t)} 
+          onClose={() => { setView(ViewState.LIBRARY); loadLibrary(); }} 
+          onUpdateTags={(t) => updatePaperTags(currentPaper.id, t)} 
+          onRenamePaper={handleRenamePaper}
           onUpdateSummary={handleUpdateSummary} onUpdateAISummary={handleUpdateAISummary} onRequestAI={handleAIRequest} onSaveNote={handleSaveNote} onDeleteNote={deleteNote}
         />
       )}
@@ -334,6 +352,36 @@ const App: React.FC = () => {
       {view === ViewState.GRAPH && <KnowledgeGraph papers={papers} allNotes={allNotesForGraph} onBack={() => setView(ViewState.LIBRARY)} onOpenPaper={handleSelectPaper} />}
 
       {showSettings && <SettingsModal settings={settings} onSave={(s) => { setSettings(s); localStorage.setItem('appSettings', JSON.stringify(s)); }} onClose={() => setShowSettings(false)} onConfigureBackup={handleConfigureBackup} backupStatus={{ active: !!backupHandle && !backupPermissionNeeded, lastBackup: lastBackupTime, fileName: backupHandle?.name }} />}
+
+      {/* AI Analysis Confirmation Modal */}
+      {pendingAnalysisId && (
+        <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm z-[250] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 border border-slate-100 animate-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mb-6">
+              <Sparkles size={32} />
+            </div>
+            <h2 className="text-xl font-bold text-slate-900 mb-2">Enhance with Scholar AI?</h2>
+            <p className="text-slate-500 text-sm leading-relaxed mb-8">
+              Would you like to perform a deep analysis? This identifies structural anchor points, generates an executive summary, and highlights critical insights automatically.
+            </p>
+            <div className="flex flex-col gap-3">
+              <button 
+                onClick={() => startDeepAnalysis(pendingAnalysisId)}
+                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-indigo-100 flex items-center justify-center gap-2"
+              >
+                <BrainCircuit size={18} /> Deep Analysis Now
+              </button>
+              <button 
+                onClick={() => setPendingAnalysisId(null)}
+                className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold transition-all"
+              >
+                Read Without AI
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-400 mt-6 text-center italic">You can always trigger this later from the Library.</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

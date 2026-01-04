@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { Paper, Note, HighlightArea, AppSettings } from '../types';
-import { ChevronLeft, ZoomIn, ZoomOut, Plus, Highlighter, FileText, Settings as SettingsIcon, MessageSquare, Sparkles } from 'lucide-react';
+import { ChevronLeft, ZoomIn, ZoomOut, Plus, Highlighter, FileText, Settings as SettingsIcon, MessageSquare, Sparkles, Edit2, Check, X } from 'lucide-react';
 import { clsx } from 'clsx';
 import { updatePaperTags } from '../lib/db';
 import NoteWindow from './NoteWindow';
@@ -17,6 +17,7 @@ interface ReaderProps {
   settings: AppSettings;
   onClose: () => void;
   onUpdateTags: (tags: string[]) => void;
+  onRenamePaper: (id: string, newTitle: string) => void;
   onUpdateSummary: (summary: string) => void;
   onUpdateAISummary: (summary: string) => void;
   onRequestAI: (task: string, payload: any) => void;
@@ -24,7 +25,7 @@ interface ReaderProps {
   onDeleteNote: (id: string) => void;
 }
 
-const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, allNotes, settings, onClose, onUpdateTags, onUpdateSummary, onUpdateAISummary, onRequestAI, onSaveNote, onDeleteNote }) => {
+const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, allNotes, settings, onClose, onUpdateTags, onRenamePaper, onUpdateSummary, onUpdateAISummary, onRequestAI, onSaveNote, onDeleteNote }) => {
   const [numPages, setNumPages] = useState<number | null>(null);
   const [scale, setScale] = useState(1.2);
   const [notes, setNotes] = useState<Note[]>(initialNotes);
@@ -32,11 +33,19 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
   const [selection, setSelection] = useState<{ text: string; rect: DOMRect; pageNumber: number; highlightAreas: HighlightArea[] } | null>(null);
   const [openNoteIds, setOpenNoteIds] = useState<Set<string>>(new Set());
   const [isEditingTags, setIsEditingTags] = useState(false);
-  const [tagInput, setTagInput] = useState('');
+  
+  // Title editing state
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editTitle, setEditTitle] = useState(paper.title);
+  const titleInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setNotes(initialNotes);
   }, [initialNotes]);
+
+  useEffect(() => {
+    setEditTitle(paper.title);
+  }, [paper.title]);
 
   const onDocumentLoadSuccess = (document: any) => setNumPages(document.numPages);
 
@@ -128,6 +137,13 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
     }
   };
 
+  const handleSaveTitle = () => {
+    if (editTitle.trim() && editTitle !== paper.title) {
+      onRenamePaper(paper.id, editTitle.trim());
+    }
+    setIsEditingTitle(false);
+  };
+
   const attemptAnchorAI = (pageNum: number) => {
     const pageWrapper = document.getElementById(`page-wrapper-${pageNum}`);
     if (!pageWrapper) return;
@@ -151,8 +167,6 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
         if (!pageRect) return;
 
         // --- ROBUST TEXT NORMALIZATION ---
-        
-        // 1. Ligature Mapping (Crucial for PDFs)
         const LIGATURES: Record<string, string> = {
           'ﬀ': 'ff', 'ﬁ': 'fi', 'ﬂ': 'fl', 'ﬃ': 'ffi', 'ﬄ': 'ffl', 
           'ﬅ': 'ft', 'ﬆ': 'st', 'Ꜳ': 'AA', 'Æ': 'AE', 'ꜳ': 'aa',
@@ -160,9 +174,7 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
 
         const normalizeChar = (char: string) => {
           let c = char;
-          // Replace ligatures
           if (LIGATURES[c]) c = LIGATURES[c];
-          // Strip non-alphanumeric (ignore punctuation, spaces, math symbols)
           return c.toLowerCase().replace(/[^a-z0-9]/g, '');
         };
 
@@ -173,9 +185,7 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
             const text = span.textContent || "";
             for (const char of text) {
                 const norm = normalizeChar(char);
-                // Only index if normalization resulted in a char (e.g., spaces/periods become empty string)
                 if (norm) { 
-                    // Handle multi-char expansions (like 'fi')
                     for (const n of norm) {
                       fullPageText += n;
                       charMap.push({ spanIndex: idx });
@@ -189,7 +199,6 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
             let startSpanIndex = -1;
             let endSpanIndex = -1;
 
-            // AI Highlight Logic: Quote format is "StartSnippet ... EndSnippet"
             if (note.quote.includes(' ... ')) {
               const parts = note.quote.split(' ... ');
               const startSnippet = parts[0].split('').map(normalizeChar).join('');
@@ -197,48 +206,24 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
 
               if (!startSnippet && !endSnippet) return;
 
-              // Search for Start
               const startIndex = startSnippet ? fullPageText.indexOf(startSnippet) : -1;
               if (startIndex !== -1) {
                   startSpanIndex = charMap[startIndex].spanIndex;
-                  
-                  // Try to find End AFTER Start
                   if (endSnippet) {
                      const searchFrom = startIndex + startSnippet.length;
                      const endIndexSearch = fullPageText.indexOf(endSnippet, searchFrom);
-                     
                      if (endIndexSearch !== -1) {
-                         // FOUND BOTH: Full Range Match
                          const endIndex = endIndexSearch + endSnippet.length - 1;
-                         if (charMap[endIndex]) {
-                             endSpanIndex = charMap[endIndex].spanIndex;
-                         }
+                         if (charMap[endIndex]) endSpanIndex = charMap[endIndex].spanIndex;
                      }
                   }
-              } else if (endSnippet) {
-                  // Start NOT found, try finding just the End?
-                  // This is a fallback to at least show SOMETHING.
-                  const endIndexSearch = fullPageText.indexOf(endSnippet);
-                  if (endIndexSearch !== -1) {
-                      const endIndex = endIndexSearch + endSnippet.length - 1;
-                      if (charMap[endIndex]) {
-                          // If we only found the end, let's just highlight the end snippet
-                          startSpanIndex = charMap[endIndexSearch].spanIndex;
-                          endSpanIndex = charMap[endIndex].spanIndex;
-                      }
-                  }
               }
 
-              // Fallback: If we found Start but not End, highlight just the Start snippet
               if (startSpanIndex !== -1 && endSpanIndex === -1 && startIndex !== -1) {
                   const endOfStartSnippet = startIndex + startSnippet.length - 1;
-                  if (charMap[endOfStartSnippet]) {
-                      endSpanIndex = charMap[endOfStartSnippet].spanIndex;
-                  }
+                  if (charMap[endOfStartSnippet]) endSpanIndex = charMap[endOfStartSnippet].spanIndex;
               }
-
             } else {
-              // Legacy/Manual Highlight (Exact Match)
               const cleanQuote = note.quote.split('').map(normalizeChar).join('');
               const idx = fullPageText.indexOf(cleanQuote);
               if (idx !== -1) {
@@ -250,7 +235,6 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
               }
             }
 
-            // Construct Highlights from Spans
             if (startSpanIndex !== -1 && endSpanIndex !== -1) {
                  const first = Math.min(startSpanIndex, endSpanIndex);
                  const last = Math.max(startSpanIndex, endSpanIndex);
@@ -265,22 +249,40 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
                         height: rect.height / pageRect.height * 100
                      };
                  });
-                 // Update note with calculated areas
                  onSaveNote({ ...note, highlightAreas });
             }
         });
-    }, 1200); // Slightly increased delay for render stability
+    }, 1200);
   };
 
   return (
     <div className="flex flex-col h-screen bg-slate-50 relative">
       <div className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 shadow-sm shrink-0 z-20">
-        <div className="flex items-center gap-6">
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full text-slate-600 transition-colors">
+        <div className="flex items-center gap-6 overflow-hidden">
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full text-slate-600 transition-colors shrink-0">
             <ChevronLeft size={22} />
           </button>
-          <div className="max-w-xl">
-            <h1 className="text-sm font-bold text-slate-900 truncate tracking-tight">{paper.title}</h1>
+          <div className="flex flex-col max-w-xl overflow-hidden">
+            {isEditingTitle ? (
+              <div className="flex items-center gap-2">
+                <input
+                  ref={titleInputRef}
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSaveTitle()}
+                  onBlur={handleSaveTitle}
+                  autoFocus
+                  className="text-sm font-bold text-slate-900 border-b-2 border-indigo-600 outline-none bg-transparent w-full"
+                />
+                <button onClick={handleSaveTitle} className="text-emerald-600 p-1 hover:bg-emerald-50 rounded"><Check size={16}/></button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 group cursor-pointer" onClick={() => setIsEditingTitle(true)}>
+                <h1 className="text-sm font-bold text-slate-900 truncate tracking-tight">{paper.title}</h1>
+                <Edit2 size={14} className="text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </div>
+            )}
             <div className="flex items-center gap-3 text-[10px] mt-0.5">
               <div className="flex gap-1.5 flex-wrap">
                 {paper.tags.map(tag => (
@@ -294,7 +296,7 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 shrink-0">
           <div className="flex items-center bg-slate-100 rounded-full p-1 border border-slate-200">
             <button onClick={() => setScale(s => Math.max(0.6, s - 0.2))} className="p-1.5 hover:bg-white rounded-full transition-all text-slate-600 shadow-sm">
               <ZoomOut size={16} />
@@ -357,7 +359,6 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
           </div>
         )}
 
-      {/* Legend */}
       <div className="fixed bottom-6 left-6 bg-white/90 backdrop-blur border border-slate-200 p-3 rounded-lg shadow-lg z-40 text-xs">
           <h4 className="font-bold text-slate-500 mb-2 uppercase tracking-wider text-[10px]">Highlight Legend</h4>
           <div className="flex flex-col gap-1.5">
