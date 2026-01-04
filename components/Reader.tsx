@@ -1,9 +1,10 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { Paper, Note, HighlightArea, AppSettings } from '../types';
 import { ChevronLeft, ZoomIn, ZoomOut, Plus, Highlighter, FileText, Settings as SettingsIcon, MessageSquare, Sparkles, Edit2, Check, X } from 'lucide-react';
 import { clsx } from 'clsx';
-import { updatePaperTags } from '../lib/db';
+import { updatePaperTags, updatePaperProgress } from '../lib/db';
 import NoteWindow from './NoteWindow';
 import SummaryPanel from './SummaryPanel';
 
@@ -33,8 +34,12 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
   const [selection, setSelection] = useState<{ text: string; rect: DOMRect; pageNumber: number; highlightAreas: HighlightArea[] } | null>(null);
   const [openNoteIds, setOpenNoteIds] = useState<Set<string>>(new Set());
   const [isEditingTags, setIsEditingTags] = useState(false);
+  const [currentPage, setCurrentPage] = useState(paper.lastPageRead || 1);
+  const [hasResumed, setHasResumed] = useState(false);
   
-  // Title editing state
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const observerRef = useRef<IntersectionObserver | null>(null);
+
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editTitle, setEditTitle] = useState(paper.title);
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -47,7 +52,59 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
     setEditTitle(paper.title);
   }, [paper.title]);
 
-  const onDocumentLoadSuccess = (document: any) => setNumPages(document.numPages);
+  const onDocumentLoadSuccess = (document: any) => {
+    setNumPages(document.numPages);
+  };
+
+  useEffect(() => {
+    if (numPages && !hasResumed && paper.lastPageRead && paper.lastPageRead > 1) {
+      const timer = setTimeout(() => {
+        const targetPage = document.getElementById(`page-wrapper-${paper.lastPageRead}`);
+        if (targetPage && scrollContainerRef.current) {
+          targetPage.scrollIntoView({ behavior: 'auto' });
+          setHasResumed(true);
+        }
+      }, 500);
+      return () => clearTimeout(timer);
+    } else if (numPages && !hasResumed) {
+      setHasResumed(true);
+    }
+  }, [numPages, paper.lastPageRead, hasResumed]);
+
+  useEffect(() => {
+    if (!numPages) return;
+
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && entry.intersectionRatio > 0.5) {
+            const pageId = entry.target.id;
+            const pageNum = parseInt(pageId.split('-')[2], 10);
+            if (!isNaN(pageNum)) {
+              setCurrentPage(pageNum);
+              updatePaperProgress(paper.id, pageNum, numPages);
+            }
+          }
+        });
+      },
+      {
+        root: scrollContainerRef.current,
+        threshold: 0.5,
+      }
+    );
+
+    const timer = setTimeout(() => {
+      for (let i = 1; i <= numPages; i++) {
+        const el = document.getElementById(`page-wrapper-${i}`);
+        if (el) observerRef.current?.observe(el);
+      }
+    }, 1000);
+
+    return () => {
+      clearTimeout(timer);
+      observerRef.current?.disconnect();
+    };
+  }, [numPages, paper.id]);
 
   const handleSelection = useCallback(() => {
     const sel = window.getSelection();
@@ -128,12 +185,13 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
     });
   };
 
-  const getHighlightColor = (color: string): string => {
+  // Improved: Returns solid colors to be used with a semi-transparent group parent
+  const getHighlightBaseColor = (color: string): string => {
     switch (color) {
-      case 'green': return 'bg-emerald-400/30 hover:bg-emerald-400/50 ring-emerald-500/20';
-      case 'blue': return 'bg-sky-400/30 hover:bg-sky-400/50 ring-sky-500/20';
-      case 'red': return 'bg-rose-400/30 hover:bg-rose-400/50 ring-rose-500/20';
-      default: return 'bg-yellow-400/30 hover:bg-yellow-400/50 ring-yellow-500/20';
+      case 'green': return 'bg-emerald-400';
+      case 'blue': return 'bg-sky-400';
+      case 'red': return 'bg-rose-400';
+      default: return 'bg-yellow-400';
     }
   };
 
@@ -148,7 +206,6 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
     const pageWrapper = document.getElementById(`page-wrapper-${pageNum}`);
     if (!pageWrapper) return;
     
-    // Find AI notes that haven't been successfully anchored yet
     const unanchoredNotes = notes.filter(n => 
       n.pageNumber === pageNum && 
       (!n.highlightAreas || n.highlightAreas.length === 0) && 
@@ -156,24 +213,23 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
     );
     if (unanchoredNotes.length === 0) return;
 
-    // Small delay to ensure text layer is rendered
     setTimeout(() => {
         const textLayer = pageWrapper.querySelector('.react-pdf__Page__textContent');
         if (!textLayer) return;
         const spans = Array.from(textLayer.querySelectorAll('span')) as HTMLElement[];
         if (spans.length === 0) return;
 
-        const pageRect = pageWrapper.querySelector('.react-pdf__Page')?.getBoundingClientRect();
-        if (!pageRect) return;
+        const pdfPage = pageWrapper.querySelector('.react-pdf__Page');
+        if (!pdfPage) return;
+        const pageRect = pdfPage.getBoundingClientRect();
 
-        // --- ROBUST TEXT NORMALIZATION ---
         const LIGATURES: Record<string, string> = {
           'ﬀ': 'ff', 'ﬁ': 'fi', 'ﬂ': 'fl', 'ﬃ': 'ffi', 'ﬄ': 'ffl', 
           'ﬅ': 'ft', 'ﬆ': 'st', 'Ꜳ': 'AA', 'Æ': 'AE', 'ꜳ': 'aa',
         };
 
-        const normalizeChar = (char: string) => {
-          let c = char;
+        const normalizeChar = (char: string): string => {
+          let c: string = char;
           if (LIGATURES[c]) c = LIGATURES[c];
           return c.toLowerCase().replace(/[^a-z0-9]/g, '');
         };
@@ -182,8 +238,8 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
         const charMap: { spanIndex: number }[] = [];
 
         spans.forEach((span, idx) => {
-            const text = span.textContent || "";
-            for (const char of text) {
+            const textContent: string = span.textContent || "";
+            for (const char of textContent) {
                 const norm = normalizeChar(char);
                 if (norm) { 
                     for (const n of norm) {
@@ -201,36 +257,51 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
 
             if (note.quote.includes(' ... ')) {
               const parts = note.quote.split(' ... ');
-              const startSnippet = parts[0].split('').map(normalizeChar).join('');
-              const endSnippet = parts[1].split('').map(normalizeChar).join('');
+              // Fixing: Explicitly type the map callback parameter to string
+              const startSnippet = (parts[0] || '').split('').map((c: string) => normalizeChar(c)).join('');
+              const endSnippet = (parts[1] || '').split('').map((c: string) => normalizeChar(c)).join('');
 
               if (!startSnippet && !endSnippet) return;
 
               const startIndex = startSnippet ? fullPageText.indexOf(startSnippet) : -1;
               if (startIndex !== -1) {
-                  startSpanIndex = charMap[startIndex].spanIndex;
+                  // Fixing: Safe access to charMap index
+                  const startMapEntry = charMap[startIndex];
+                  if (startMapEntry) {
+                    startSpanIndex = startMapEntry.spanIndex;
+                  }
+                  
                   if (endSnippet) {
                      const searchFrom = startIndex + startSnippet.length;
                      const endIndexSearch = fullPageText.indexOf(endSnippet, searchFrom);
                      if (endIndexSearch !== -1) {
                          const endIndex = endIndexSearch + endSnippet.length - 1;
-                         if (charMap[endIndex]) endSpanIndex = charMap[endIndex].spanIndex;
+                         const endMapEntry = charMap[endIndex];
+                         if (endMapEntry) {
+                           endSpanIndex = endMapEntry.spanIndex;
+                         }
                      }
                   }
               }
 
               if (startSpanIndex !== -1 && endSpanIndex === -1 && startIndex !== -1) {
                   const endOfStartSnippet = startIndex + startSnippet.length - 1;
-                  if (charMap[endOfStartSnippet]) endSpanIndex = charMap[endOfStartSnippet].spanIndex;
+                  const endOfStartMapEntry = charMap[endOfStartSnippet];
+                  if (endOfStartMapEntry) {
+                    endSpanIndex = endOfStartMapEntry.spanIndex;
+                  }
               }
             } else {
-              const cleanQuote = note.quote.split('').map(normalizeChar).join('');
+              // Fixing: Explicitly type the map callback parameter to string
+              const cleanQuote = note.quote.split('').map((c: string) => normalizeChar(c)).join('');
               const idx = fullPageText.indexOf(cleanQuote);
               if (idx !== -1) {
                  const endIdx = idx + cleanQuote.length - 1;
-                 if (charMap[idx] && charMap[endIdx]) {
-                    startSpanIndex = charMap[idx].spanIndex;
-                    endSpanIndex = charMap[endIdx].spanIndex;
+                 const startEntry = charMap[idx];
+                 const endEntry = charMap[endIdx];
+                 if (startEntry && endEntry) {
+                    startSpanIndex = startEntry.spanIndex;
+                    endSpanIndex = endEntry.spanIndex;
                  }
               }
             }
@@ -296,7 +367,12 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
           </div>
         </div>
 
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex items-center gap-4">
+           {numPages && (
+             <div className="text-xs font-bold text-slate-400 tracking-tighter bg-slate-50 px-3 py-1.5 rounded-full border border-slate-100">
+               PAGE <span className="text-indigo-600">{currentPage}</span> / {numPages}
+             </div>
+           )}
           <div className="flex items-center bg-slate-100 rounded-full p-1 border border-slate-200">
             <button onClick={() => setScale(s => Math.max(0.6, s - 0.2))} className="p-1.5 hover:bg-white rounded-full transition-all text-slate-600 shadow-sm">
               <ZoomOut size={16} />
@@ -312,7 +388,7 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto bg-slate-100 relative p-8">
+      <div ref={scrollContainerRef} className="flex-1 overflow-auto bg-slate-100 relative p-8">
         <div className="flex justify-center min-h-full">
            <div className="relative shadow-2xl rounded-sm bg-white">
             <Document file={paper.fileData} onLoadSuccess={onDocumentLoadSuccess} className="pdf-document">
@@ -325,15 +401,35 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
                 return (
                   <div key={`page_${pageNum}`} id={`page-wrapper-${pageNum}`} className="mb-6 relative group bg-white border border-slate-200 shadow-sm" style={{ width: 'fit-content' }}>
                     <Page pageNumber={pageNum} scale={scale} renderTextLayer={true} renderAnnotationLayer={false} onRenderSuccess={() => attemptAnchorAI(pageNum)} />
+                    
+                    {/* FIXED: Grouped Highlights for consistent opacity */}
                     <div className="absolute inset-0 z-10 pointer-events-none">
                       {highlightedNotes.map(note => (
-                        <div key={note.id}>
+                        <div 
+                          key={note.id} 
+                          className="absolute inset-0 opacity-40 mix-blend-multiply group/note pointer-events-none"
+                        >
                           {(note.highlightAreas || []).map((area, idx) => (
-                             <div key={idx} onClick={(e) => { e.stopPropagation(); toggleNoteWindow(note.id); }} className={clsx("absolute mix-blend-multiply transition-all cursor-pointer pointer-events-auto rounded-sm ring-1", getHighlightColor(note.color))} style={{ left: `${area.x}%`, top: `${area.y}%`, width: `${area.width}%`, height: `${area.height}%` }} />
+                             <div 
+                               key={idx} 
+                               onClick={(e) => { e.stopPropagation(); toggleNoteWindow(note.id); }} 
+                               className={clsx(
+                                 "absolute transition-colors cursor-pointer pointer-events-auto rounded-[1px]", 
+                                 getHighlightBaseColor(note.color),
+                                 "hover:brightness-95" // Slight feedback on hover
+                               )} 
+                               style={{ 
+                                 left: `${area.x}%`, 
+                                 top: `${area.y}%`, 
+                                 width: `${area.width}%`, 
+                                 height: `${area.height}%` 
+                               }} 
+                             />
                           ))}
                         </div>
                       ))}
                     </div>
+
                     {genericNotes.length > 0 && (
                       <div className="absolute -right-12 top-0 flex flex-col gap-2 z-20">
                          {genericNotes.map((note) => (

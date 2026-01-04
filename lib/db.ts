@@ -54,6 +54,15 @@ export const savePaper = async (paper: Paper): Promise<void> => {
   });
 };
 
+export const updatePaperProgress = async (id: string, lastPageRead: number, totalPages: number): Promise<void> => {
+  const paper = await getPaperById(id);
+  if (!paper) return;
+  paper.lastPageRead = lastPageRead;
+  paper.totalPages = totalPages;
+  paper.lastReadAt = Date.now();
+  await savePaper(paper);
+};
+
 export const getAllPapersMetadata = async (): Promise<PaperMetadata[]> => {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -104,7 +113,6 @@ export const deletePaper = async (id: string): Promise<void> => {
   }
 
   // 2. Primary Action: Delete Paper record. 
-  // Following the same logic as deleteNote (request.onsuccess) to avoid transaction hang.
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_PAPERS, 'readwrite');
     const store = tx.objectStore(STORE_PAPERS);
@@ -160,7 +168,7 @@ export const getNotesByPaperId = async (paperId: string): Promise<Note[]> => {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NOTES, 'readonly');
     const store = tx.objectStore(STORE_NOTES);
-    // Fallback if index missing (should happen less now with V5 bump)
+    // Fallback if index missing
     if (store.indexNames.contains('paperId')) {
         const index = store.index('paperId');
         const request = index.getAll(paperId);

@@ -8,6 +8,8 @@ export interface Paper {
   aiSummary?: string; // AI generated executive summary
   uploadedAt: number;
   lastReadAt: number;
+  lastPageRead?: number;
+  totalPages?: number;
 }
 
 export interface HighlightArea {
@@ -37,6 +39,8 @@ export interface PaperMetadata {
   tags: string[];
   uploadedAt: number;
   lastReadAt: number;
+  lastPageRead?: number;
+  totalPages?: number;
 }
 
 export enum ViewState {

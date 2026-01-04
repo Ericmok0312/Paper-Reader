@@ -262,147 +262,162 @@ const Dashboard: React.FC<DashboardProps> = ({
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {filteredPapers.map(paper => (
-                <div key={paper.id} className="group bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition-shadow flex flex-col justify-between relative overflow-visible">
-                  
-                  {/* Inline Deletion Overlay - Using a more robust z-index and portal-like positioning if needed */}
-                  {paperToDeleteId === paper.id && (
-                    <div className="absolute inset-0 bg-white/95 backdrop-blur-[2px] z-[100] flex flex-col items-center justify-center p-6 text-center rounded-xl border-2 border-red-50 animate-in fade-in zoom-in-95 duration-200">
-                      <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-3">
-                        <AlertCircle size={24} />
-                      </div>
-                      <h4 className="font-bold text-slate-900 text-sm mb-1">Delete this paper?</h4>
-                      <p className="text-xs text-slate-500 mb-6">This action is permanent and will remove all associated notes and analysis.</p>
-                      <div className="flex gap-2 w-full">
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); setPaperToDeleteId(null); }}
-                          className="flex-1 py-2 px-4 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold transition-colors"
-                        >
-                          Cancel
-                        </button>
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); onDeletePaper(paper.id); setPaperToDeleteId(null); }}
-                          className="flex-1 py-2 px-4 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-colors shadow-sm shadow-red-100"
-                        >
-                          Delete
-                        </button>
-                      </div>
+              {filteredPapers.map(paper => {
+                const progress = paper.totalPages ? (paper.lastPageRead || 1) / paper.totalPages * 100 : 0;
+                
+                return (
+                  <div key={paper.id} className="group bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition-shadow flex flex-col justify-between relative overflow-visible">
+                    
+                    {/* Reading Progress Bar Overlay */}
+                    <div className="absolute top-0 left-0 w-full h-1 bg-gray-100 overflow-hidden rounded-t-xl">
+                       <div className="h-full bg-indigo-500 transition-all duration-500" style={{ width: `${progress}%` }}></div>
                     </div>
-                  )}
 
-                  <div>
-                    <div className="flex justify-between items-start mb-2">
-                      <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600">
-                        <FileText size={24} />
+                    {paperToDeleteId === paper.id && (
+                      <div className="absolute inset-0 bg-white/95 backdrop-blur-[2px] z-[100] flex flex-col items-center justify-center p-6 text-center rounded-xl border-2 border-red-50 animate-in fade-in zoom-in-95 duration-200">
+                        <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-3">
+                          <AlertCircle size={24} />
+                        </div>
+                        <h4 className="font-bold text-slate-900 text-sm mb-1">Delete this paper?</h4>
+                        <p className="text-xs text-slate-500 mb-6">This action is permanent and will remove all associated notes and analysis.</p>
+                        <div className="flex gap-2 w-full">
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); setPaperToDeleteId(null); }}
+                            className="flex-1 py-2 px-4 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold transition-colors"
+                          >
+                            Cancel
+                          </button>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); onDeletePaper(paper.id); setPaperToDeleteId(null); }}
+                            className="flex-1 py-2 px-4 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-colors shadow-sm shadow-red-100"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    <div>
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600">
+                          <FileText size={24} />
+                        </div>
+                        
+                        <div className="flex gap-1 relative z-[50]">
+                          <button 
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); startEditing(paper); }}
+                            className="text-gray-400 hover:text-indigo-600 p-1.5 rounded-md hover:bg-indigo-50 transition-colors cursor-pointer"
+                            title="Rename Paper"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          <button 
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setPaperToDeleteId(paper.id); }}
+                            className="text-gray-400 hover:text-red-500 p-1.5 rounded-md hover:bg-red-50 transition-colors cursor-pointer"
+                            title="Delete Paper"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
                       </div>
                       
-                      <div className="flex gap-1 relative z-[50]">
-                        <button 
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); startEditing(paper); }}
-                          className="text-gray-400 hover:text-indigo-600 p-1.5 rounded-md hover:bg-indigo-50 transition-colors cursor-pointer"
-                          title="Rename Paper"
+                      {editingPaperId === paper.id ? (
+                        <div className="mb-2 flex items-center gap-2 relative z-20">
+                          <input
+                            type="text"
+                            value={editTitle}
+                            onChange={(e) => setEditTitle(e.target.value)}
+                            className="flex-1 text-sm font-semibold text-gray-900 border-b-2 border-indigo-500 focus:outline-none bg-transparent"
+                            autoFocus
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.key === 'Enter' && saveTitle(paper.id)}
+                          />
+                          <button onClick={(e) => { e.stopPropagation(); saveTitle(paper.id); }} className="text-green-600 hover:bg-green-50 rounded p-1"><Check size={16}/></button>
+                          <button onClick={(e) => { e.stopPropagation(); setEditingPaperId(null); }} className="text-red-500 hover:bg-red-50 rounded p-1"><X size={16}/></button>
+                        </div>
+                      ) : (
+                        <h3 
+                          className="font-semibold text-gray-900 line-clamp-2 mb-2 cursor-pointer hover:text-indigo-600 transition-colors"
+                          onClick={() => onSelectPaper(paper.id)}
+                          title="Click to read"
                         >
-                          <Edit2 size={16} />
-                        </button>
-                        <button 
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); setPaperToDeleteId(paper.id); }}
-                          className="text-gray-400 hover:text-red-500 p-1.5 rounded-md hover:bg-red-50 transition-colors cursor-pointer"
-                          title="Delete Paper"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </div>
-                    
-                    {editingPaperId === paper.id ? (
-                      <div className="mb-2 flex items-center gap-2 relative z-20">
-                        <input
-                          type="text"
-                          value={editTitle}
-                          onChange={(e) => setEditTitle(e.target.value)}
-                          className="flex-1 text-sm font-semibold text-gray-900 border-b-2 border-indigo-500 focus:outline-none bg-transparent"
-                          autoFocus
-                          onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => e.key === 'Enter' && saveTitle(paper.id)}
-                        />
-                        <button onClick={(e) => { e.stopPropagation(); saveTitle(paper.id); }} className="text-green-600 hover:bg-green-50 rounded p-1"><Check size={16}/></button>
-                        <button onClick={(e) => { e.stopPropagation(); setEditingPaperId(null); }} className="text-red-500 hover:bg-red-50 rounded p-1"><X size={16}/></button>
-                      </div>
-                    ) : (
-                       <h3 
-                        className="font-semibold text-gray-900 line-clamp-2 mb-2 cursor-pointer hover:text-indigo-600 transition-colors"
-                        onClick={() => onSelectPaper(paper.id)}
-                        title="Click to read"
-                      >
-                        {paper.title}
-                      </h3>
-                    )}
+                          {paper.title}
+                        </h3>
+                      )}
 
-                    {tagEditId === paper.id ? (
-                      <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm mb-2 relative z-20" onClick={e => e.stopPropagation()}>
-                        <div className="flex flex-wrap gap-1 mb-2">
-                          {currentEditTags.map(tag => (
-                            <span key={tag} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700 border border-indigo-200">
+                      {tagEditId === paper.id ? (
+                        <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm mb-2 relative z-20" onClick={e => e.stopPropagation()}>
+                          <div className="flex flex-wrap gap-1 mb-2">
+                            {currentEditTags.map(tag => (
+                              <span key={tag} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700 border border-indigo-200">
+                                {tag}
+                                <button onClick={() => removeTag(tag)} className="ml-1 hover:text-red-600"><X size={10}/></button>
+                              </span>
+                            ))}
+                          </div>
+                          <div className="flex gap-1">
+                            <input 
+                              className="flex-1 text-xs border border-slate-300 rounded px-2 py-1 focus:outline-none focus:border-indigo-500 bg-white"
+                              placeholder="Add tag..."
+                              value={tagInput}
+                              onChange={e => setTagInput(e.target.value)}
+                              onKeyDown={e => e.key === 'Enter' && addTag(e)}
+                              list={`tags-list-${paper.id}`}
+                              autoFocus
+                            />
+                            <datalist id={`tags-list-${paper.id}`}>
+                              {globalTags.filter(t => !currentEditTags.includes(t)).map(t => (
+                                <option key={t} value={t} />
+                              ))}
+                            </datalist>
+                            <button onClick={() => addTag()} className="bg-slate-200 hover:bg-slate-300 text-slate-700 p-1 rounded"><Plus size={14}/></button>
+                          </div>
+                          <div className="flex justify-end gap-2 mt-2 pt-2 border-t border-slate-200">
+                            <button onClick={() => setTagEditId(null)} className="text-xs text-slate-500 hover:text-slate-800">Cancel</button>
+                            <button onClick={() => saveTags(paper.id)} className="bg-indigo-600 text-white text-xs px-2 py-1 rounded font-bold hover:bg-indigo-700">Done</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap gap-2 mb-4 items-center min-h-[24px]">
+                          {paper.tags.map(tag => (
+                            <span key={tag} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
                               {tag}
-                              <button onClick={() => removeTag(tag)} className="ml-1 hover:text-red-600"><X size={10}/></button>
                             </span>
                           ))}
+                          <button 
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); startEditingTags(paper); }}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 p-0.5 rounded"
+                            title="Manage Tags"
+                          >
+                            <Tag size={12} />
+                          </button>
                         </div>
-                        <div className="flex gap-1">
-                          <input 
-                            className="flex-1 text-xs border border-slate-300 rounded px-2 py-1 focus:outline-none focus:border-indigo-500 bg-white"
-                            placeholder="Add tag..."
-                            value={tagInput}
-                            onChange={e => setTagInput(e.target.value)}
-                            onKeyDown={e => e.key === 'Enter' && addTag(e)}
-                            list={`tags-list-${paper.id}`}
-                            autoFocus
-                          />
-                          <datalist id={`tags-list-${paper.id}`}>
-                            {globalTags.filter(t => !currentEditTags.includes(t)).map(t => (
-                              <option key={t} value={t} />
-                            ))}
-                          </datalist>
-                          <button onClick={() => addTag()} className="bg-slate-200 hover:bg-slate-300 text-slate-700 p-1 rounded"><Plus size={14}/></button>
-                        </div>
-                        <div className="flex justify-end gap-2 mt-2 pt-2 border-t border-slate-200">
-                           <button onClick={() => setTagEditId(null)} className="text-xs text-slate-500 hover:text-slate-800">Cancel</button>
-                           <button onClick={() => saveTags(paper.id)} className="bg-indigo-600 text-white text-xs px-2 py-1 rounded font-bold hover:bg-indigo-700">Done</button>
-                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">
+                          {paper.lastPageRead && paper.totalPages ? `Page ${paper.lastPageRead} of ${paper.totalPages}` : 'Added ' + new Date(paper.uploadedAt).toLocaleDateString()}
+                        </span>
+                        {paper.totalPages && (
+                           <span className="text-[9px] text-indigo-500 font-black tracking-tighter">
+                             {Math.round(progress)}% READ
+                           </span>
+                        )}
                       </div>
-                    ) : (
-                      <div className="flex flex-wrap gap-2 mb-4 items-center min-h-[24px]">
-                        {paper.tags.map(tag => (
-                          <span key={tag} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
-                            {tag}
-                          </span>
-                        ))}
+                      <div className="flex items-center gap-2">
                         <button 
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); startEditingTags(paper); }}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 p-0.5 rounded"
-                          title="Manage Tags"
+                          onClick={() => onSelectPaper(paper.id)}
+                          className="inline-flex items-center gap-1.5 text-sm font-bold text-slate-900 hover:text-indigo-600 transition-colors bg-slate-50 hover:bg-indigo-50 px-3 py-1.5 rounded-lg border border-slate-200 hover:border-indigo-100"
                         >
-                          <Tag size={12} />
+                          {paper.lastPageRead ? 'Resume' : 'Read'} <BookOpen size={16} />
                         </button>
                       </div>
-                    )}
-                  </div>
-                  
-                  <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
-                    <span className="text-xs text-gray-400">
-                      Added {new Date(paper.uploadedAt).toLocaleDateString()}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <button 
-                        onClick={() => onSelectPaper(paper.id)}
-                        className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-900 hover:text-indigo-600"
-                      >
-                        Read <BookOpen size={16} />
-                      </button>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
