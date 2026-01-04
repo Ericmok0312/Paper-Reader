@@ -40,7 +40,7 @@ Existing Knowledge Tags: {{globalTags}}
    - Do NOT extract more than 4 per section.
    - Do NOT extract fewer than 3 per section (unless the section is very short).
 3. Total highlights should be between 12 and 20.
-
+4. Double check the number of critical anchor points satisfy the requirements
 **OUTPUT FORMAT:**
 Do NOT output JSON. Use the following strict text block format for each highlight:
 
@@ -73,8 +73,7 @@ const getClient = () => {
 async function generateText(prompt: string, settings?: AppSettings, jsonMode = false): Promise<string> {
   const ai = getClient();
   const config: any = {
-    temperature: 0.1, // Low temperature for deterministic/focused results
-    maxOutputTokens: 8192,
+    temperature: 0.7,
   };
   if (jsonMode) {
     config.responseMimeType = "application/json";
