@@ -151,7 +151,19 @@ const NoteWindow: React.FC<NoteWindowProps> = ({ note, allGlobalTags, allNotes, 
           "{note.quote}"
         </div>
 
-        <div className="relative">
+        <div className="flex flex-col">
+          <div className="flex justify-between items-center mb-1.5">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Commentary</span>
+            {comment.trim().length > 10 && (
+              <button 
+                onClick={handleAiReorganize}
+                className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded border border-indigo-100 hover:bg-indigo-100 flex items-center gap-1 font-bold transition-colors"
+                title="AI Reorganize/Proofread"
+              >
+                <Wand2 size={10} /> Reorganize
+              </button>
+            )}
+          </div>
           <textarea
             ref={textareaRef}
             value={comment}
@@ -159,15 +171,6 @@ const NoteWindow: React.FC<NoteWindowProps> = ({ note, allGlobalTags, allNotes, 
             placeholder="Type your notes..."
             className="w-full min-h-[128px] p-3 text-sm bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 resize-none text-slate-800 placeholder-slate-400 overflow-hidden"
           />
-          {comment.trim().length > 10 && (
-            <button 
-              onClick={handleAiReorganize}
-              className="absolute bottom-2 right-2 text-[10px] bg-indigo-50 text-indigo-600 px-2 py-1 rounded border border-indigo-100 hover:bg-indigo-100 flex items-center gap-1 font-medium transition-colors"
-              title="AI Reorganize/Proofread"
-            >
-              <Wand2 size={10} /> Reorganize
-            </button>
-          )}
         </div>
 
         <div className="space-y-2 shrink-0">

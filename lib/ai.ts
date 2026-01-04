@@ -21,13 +21,24 @@ Note: "{{text}}"`,
 
   ANALYZE_PAPER_SUMMARY: `Act as an expert academic researcher. Deeply read the provided PDF and generate a structured Executive Summary in Markdown.
 
+**TASK 1: SUMMARY**
 Sections required:
 - **Core Problem & Gap**: What is missing in current literature?
 - **Technical Methodology**: The specific approach/math/architecture used.
 - **Primary Findings**: The data-driven results.
 - **Research Implications**: Future work or industry impact.
 
-Return JSON format: { "summary": "markdown string" }`,
+**TASK 2: TAGGING**
+Suggest up to 5 high-level relevant tags for this entire paper.
+Existing Knowledge Tags: {{globalTags}}
+
+Rules for Tags:
+1. Prioritize using tags from "Existing Knowledge Tags" if they are relevant.
+2. Use identical spelling and casing as provided in the list.
+3. Only create new tags if the paper covers a concept not adequately represented in the existing list.
+4. Tags should be concise (1-3 words) and technical.
+
+Return JSON format: { "summary": "markdown string", "tags": ["tag1", "tag2"] }`,
 
   ANALYZE_PAPER_HIGHLIGHTS: `Act as an expert academic researcher. Perform a thorough "Deep Reading" of the PDF.
 
@@ -123,16 +134,17 @@ export const organizeSummaryAI = async (text: string, settings?: AppSettings): P
   return generateText(template.replace('{{text}}', text), settings);
 };
 
-export const analyzePaperSummary = async (fileData: ArrayBuffer, settings?: AppSettings): Promise<string> => {
+export const analyzePaperSummary = async (fileData: ArrayBuffer, globalTags: string[], settings?: AppSettings): Promise<{ summary: string, tags: string[] }> => {
   const ai = getClient();
   const base64Data = arrayBufferToBase64(fileData);
+  const promptText = DEFAULT_PROMPTS.ANALYZE_PAPER_SUMMARY.replace('{{globalTags}}', JSON.stringify(globalTags));
 
   const response = await ai.models.generateContent({
     model: MODEL_NAME,
     contents: {
       parts: [
         { inlineData: { mimeType: 'application/pdf', data: base64Data } },
-        { text: DEFAULT_PROMPTS.ANALYZE_PAPER_SUMMARY }
+        { text: promptText }
       ]
     },
     config: {
@@ -141,17 +153,24 @@ export const analyzePaperSummary = async (fileData: ArrayBuffer, settings?: AppS
       responseMimeType: "application/json",
       responseSchema: {
          type: Type.OBJECT,
-         properties: { summary: { type: Type.STRING } }
+         properties: { 
+           summary: { type: Type.STRING },
+           tags: { type: Type.ARRAY, items: { type: Type.STRING } }
+         },
+         required: ["summary", "tags"]
       }
     }
   });
 
   try {
     const json = JSON.parse(response.text?.trim() || "{}");
-    return json.summary || "";
+    return {
+      summary: json.summary || "",
+      tags: Array.isArray(json.tags) ? json.tags : []
+    };
   } catch (e) {
     console.error("Summary Parse Error", e);
-    return response.text || "";
+    return { summary: response.text || "", tags: [] };
   }
 };
 

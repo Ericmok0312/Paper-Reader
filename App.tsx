@@ -1,4 +1,3 @@
-// Fixed: Removed redundant and malformed type definitions from imports that were causing compilation errors.
 import React, { useEffect, useState, useRef } from 'react';
 import { Paper, PaperMetadata, Note, ViewState, AppSettings, NotificationItem } from './types';
 import { savePaper, getAllPapersMetadata, getPaperById, getNotesByPaperId, deletePaper, updatePaperTitle, saveNote, updatePaperSummary, updatePaperAISummary, writeBackupToHandle, getBackupHandle, saveBackupHandle, updatePaperTags, deleteNote } from './lib/db';
@@ -141,7 +140,6 @@ const App: React.FC = () => {
 
   const handleRenamePaper = async (id: string, newTitle: string) => {
     await updatePaperTitle(id, newTitle);
-    // Explicitly update papers state immediately
     setPapers(prev => prev.map(p => p.id === id ? { ...p, title: newTitle } : p));
     if (currentPaper?.id === id) {
       setCurrentPaper(prev => prev ? { ...prev, title: newTitle } : null);
@@ -149,15 +147,13 @@ const App: React.FC = () => {
   };
   
   const handleDeletePaper = async (id: string) => {
-    // Delete from state immediately for responsive UI
     setPapers(prev => prev.filter(p => p.id !== id));
     try {
       await deletePaper(id);
-      // Also update all notes list for graph consistency
       setAllNotesForGraph(prev => prev.filter(n => n.paperId !== id));
     } catch (error) {
       console.error("Failed to delete paper from DB:", error);
-      loadLibrary(); // Fallback reload
+      loadLibrary();
     }
   };
 
@@ -199,13 +195,25 @@ const App: React.FC = () => {
       const paper = await getPaperById(paperId);
       if (!paper) throw new Error("Paper not found");
 
-      // Phase 1: Summary
-      setAnalysisStatus("Phase 1: Generating scholarly summary...");
-      const aiSummary = await analyzePaperSummary(paper.fileData, settings);
-      if (aiSummary) {
-        await updatePaperAISummary(paperId, aiSummary);
+      // Phase 1: Summary & Paper Tags
+      setAnalysisStatus("Phase 1: Generating scholarly summary and suggesting tags...");
+      const analysisResult = await analyzePaperSummary(paper.fileData, allTags, settings);
+      
+      if (analysisResult.summary) {
+        await updatePaperAISummary(paperId, analysisResult.summary);
         if (currentPaper?.id === paperId) {
-          setCurrentPaper(prev => prev ? { ...prev, aiSummary } : null);
+          setCurrentPaper(prev => prev ? { ...prev, aiSummary: analysisResult.summary } : null);
+        }
+      }
+
+      // Automatically apply suggested tags to the paper metadata
+      if (analysisResult.tags && analysisResult.tags.length > 0) {
+        const mergedTags = Array.from(new Set([...paper.tags, ...analysisResult.tags]));
+        await updatePaperTags(paperId, mergedTags);
+        // Refresh local state to reflect tags on dashboard/reader
+        setPapers(prev => prev.map(p => p.id === paperId ? { ...p, tags: mergedTags } : p));
+        if (currentPaper?.id === paperId) {
+          setCurrentPaper(prev => prev ? { ...prev, tags: mergedTags } : null);
         }
       }
 
@@ -243,12 +251,11 @@ const App: React.FC = () => {
       }
       
       setAnalysisStatus("Analysis complete.");
-      // If we are already in the reader for this paper, refresh notes
       if (currentPaper?.id === paperId) {
         const updatedNotes = await getNotesByPaperId(paperId);
         setCurrentNotes(updatedNotes);
       }
-      loadLibrary(); // Sync dashboard tags
+      loadLibrary(); 
     } catch (e) {
       console.error(e);
       alert("Scholar AI encountered a processing limit.");
@@ -273,9 +280,7 @@ const App: React.FC = () => {
       await savePaper(newPaper);
       await loadLibrary();
       
-      // Instead of immediate analysis, set pending
       setPendingAnalysisId(newPaper.id);
-      // Auto-open reader
       await handleSelectPaper(newPaper.id);
     } catch (e) { 
       console.error(e);
@@ -353,7 +358,6 @@ const App: React.FC = () => {
 
       {showSettings && <SettingsModal settings={settings} onSave={(s) => { setSettings(s); localStorage.setItem('appSettings', JSON.stringify(s)); }} onClose={() => setShowSettings(false)} onConfigureBackup={handleConfigureBackup} backupStatus={{ active: !!backupHandle && !backupPermissionNeeded, lastBackup: lastBackupTime, fileName: backupHandle?.name }} />}
 
-      {/* AI Analysis Confirmation Modal */}
       {pendingAnalysisId && (
         <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm z-[250] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 border border-slate-100 animate-in zoom-in-95 duration-200">
@@ -362,7 +366,7 @@ const App: React.FC = () => {
             </div>
             <h2 className="text-xl font-bold text-slate-900 mb-2">Enhance with Scholar AI?</h2>
             <p className="text-slate-500 text-sm leading-relaxed mb-8">
-              Would you like to perform a deep analysis? This identifies structural anchor points, generates an executive summary, and highlights critical insights automatically.
+              Would you like to perform a deep analysis? This identifies structural anchor points, generates an executive summary, and suggests academic tags automatically.
             </p>
             <div className="flex flex-col gap-3">
               <button 
