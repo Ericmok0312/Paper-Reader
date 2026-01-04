@@ -129,7 +129,7 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
         x: (r.left - pageRect.left) / pageRect.width * 100,
         y: (r.top - pageRect.top) / pageRect.height * 100,
         width: r.width / pageRect.width * 100,
-        height: r.height / pageRect.height * 100
+        height: r.width / pageRect.width * 100
       }));
 
       setSelection({ text, rect, pageNumber, highlightAreas });
@@ -230,7 +230,8 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
 
         const normalizeChar = (char: string): string => {
           let c: string = char;
-          if (LIGATURES[c]) c = LIGATURES[c];
+          const mapped = LIGATURES[c];
+          if (mapped) c = mapped;
           return c.toLowerCase().replace(/[^a-z0-9]/g, '');
         };
 
@@ -239,10 +240,12 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
 
         spans.forEach((span, idx) => {
             const textContent: string = span.textContent || "";
-            for (const char of textContent) {
+            // Fix: Use Array.from to ensure character iteration is clearly typed as string to avoid 'unknown' issues
+            for (const char of Array.from(textContent)) {
                 const norm = normalizeChar(char);
                 if (norm) { 
-                    for (const n of norm) {
+                    // Fix: Ensure internal iteration of normalized characters is also type-safe
+                    for (const n of Array.from(norm)) {
                       fullPageText += n;
                       charMap.push({ spanIndex: idx });
                     }
@@ -257,15 +260,14 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
 
             if (note.quote.includes(' ... ')) {
               const parts = note.quote.split(' ... ');
-              // Fixing: Explicitly type the map callback parameter to string
-              const startSnippet = (parts[0] || '').split('').map((c: string) => normalizeChar(c)).join('');
-              const endSnippet = (parts[1] || '').split('').map((c: string) => normalizeChar(c)).join('');
+              // Fix: Use Array.from and explicit map callback for robust string type inference
+              const startSnippet = Array.from(parts[0] || '').map(c => normalizeChar(c)).join('');
+              const endSnippet = Array.from(parts[1] || '').map(c => normalizeChar(c)).join('');
 
               if (!startSnippet && !endSnippet) return;
 
               const startIndex = startSnippet ? fullPageText.indexOf(startSnippet) : -1;
               if (startIndex !== -1) {
-                  // Fixing: Safe access to charMap index
                   const startMapEntry = charMap[startIndex];
                   if (startMapEntry) {
                     startSpanIndex = startMapEntry.spanIndex;
@@ -292,8 +294,8 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
                   }
               }
             } else {
-              // Fixing: Explicitly type the map callback parameter to string
-              const cleanQuote = note.quote.split('').map((c: string) => normalizeChar(c)).join('');
+              // Fix: Use Array.from and explicit map callback for robust string type inference
+              const cleanQuote = Array.from(note.quote).map(c => normalizeChar(c)).join('');
               const idx = fullPageText.indexOf(cleanQuote);
               if (idx !== -1) {
                  const endIdx = idx + cleanQuote.length - 1;
@@ -402,7 +404,6 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
                   <div key={`page_${pageNum}`} id={`page-wrapper-${pageNum}`} className="mb-6 relative group bg-white border border-slate-200 shadow-sm" style={{ width: 'fit-content' }}>
                     <Page pageNumber={pageNum} scale={scale} renderTextLayer={true} renderAnnotationLayer={false} onRenderSuccess={() => attemptAnchorAI(pageNum)} />
                     
-                    {/* FIXED: Grouped Highlights for consistent opacity */}
                     <div className="absolute inset-0 z-10 pointer-events-none">
                       {highlightedNotes.map(note => (
                         <div 
@@ -416,7 +417,7 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
                                className={clsx(
                                  "absolute transition-colors cursor-pointer pointer-events-auto rounded-[1px]", 
                                  getHighlightBaseColor(note.color),
-                                 "hover:brightness-95" // Slight feedback on hover
+                                 "hover:brightness-95"
                                )} 
                                style={{ 
                                  left: `${area.x}%`, 

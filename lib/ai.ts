@@ -74,28 +74,101 @@ IMPORTANCE: {Critical | High | Standard}
 `
 };
 
-const getClient = () => {
-  if (!process.env.API_KEY) {
-    throw new Error("API Key not found");
-  }
-  return new GoogleGenAI({ apiKey: process.env.API_KEY });
+/**
+ * Parses the API_KEY environment variable. 
+ * Supports a single key or a comma-separated list of keys for rotation.
+ */
+const getAvailableKeys = (): string[] => {
+  const raw = process.env.API_KEY || "";
+  return raw.split(",").map(k => k.trim()).filter(Boolean);
 };
 
-async function generateText(prompt: string, settings?: AppSettings, jsonMode = false): Promise<string> {
-  const ai = getClient();
-  const config: any = {
-    temperature: 0.7,
-  };
-  if (jsonMode) {
-    config.responseMimeType = "application/json";
+let currentKeyIndex = 0;
+
+/**
+ * Ensures a valid API key is selected and returns a fresh GoogleGenAI instance.
+ * Supports rotation if multiple keys are available.
+ */
+const getClient = async (forceNext = false): Promise<GoogleGenAI> => {
+  // @ts-ignore - defined in global context
+  const hasKey = await window.aistudio.hasSelectedApiKey();
+  if (!hasKey) {
+    // @ts-ignore
+    await window.aistudio.openSelectKey();
+    // Proceed as per race condition mitigation guidelines
   }
   
-  const response = await ai.models.generateContent({
-    model: MODEL_NAME,
-    contents: prompt,
-    config
+  const keys = getAvailableKeys();
+  if (keys.length === 0) {
+    throw new Error("API Key selection is required to use AI features.");
+  }
+  
+  if (forceNext) {
+    currentKeyIndex = (currentKeyIndex + 1) % keys.length;
+  }
+  
+  const apiKey = keys[currentKeyIndex];
+  return new GoogleGenAI({ apiKey });
+};
+
+/**
+ * Wrapper to handle errors and implement key rotation/retry logic.
+ * If an error occur, tries with other API keys if provided in process.env.API_KEY.
+ */
+async function callAi<T>(operation: (ai: GoogleGenAI) => Promise<T>): Promise<T> {
+  const keys = getAvailableKeys();
+  const maxRetries = Math.max(1, keys.length);
+  let lastError: any;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      // Create client with current (or next if retrying) key
+      const ai = await getClient(attempt > 0);
+      return await operation(ai);
+    } catch (error: any) {
+      lastError = error;
+      const isNotFoundError = error.message?.includes("Requested entity was not found.");
+      const isRateLimit = error.message?.includes("429") || error.message?.toLowerCase().includes("rate limit");
+      
+      console.warn(`AI attempt ${attempt + 1} failed with key index ${currentKeyIndex}:`, error.message);
+
+      // If we have more keys in the environment to try, rotate and continue the loop
+      if (attempt < maxRetries - 1 && (isNotFoundError || isRateLimit)) {
+        continue;
+      }
+
+      // If it was a "not found" error and we've exhausted env keys, prompt user to select/fix via dialog
+      if (isNotFoundError) {
+        // @ts-ignore
+        await window.aistudio.openSelectKey();
+        // One final try after user interaction with the primary process.env.API_KEY
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        return await operation(ai);
+      }
+      
+      break;
+    }
+  }
+  
+  throw lastError;
+}
+
+async function generateText(prompt: string, settings?: AppSettings, jsonMode = false): Promise<string> {
+  return callAi(async (ai) => {
+    const config: any = {
+      temperature: 0.7,
+    };
+    if (jsonMode) {
+      config.responseMimeType = "application/json";
+    }
+    
+    const response = await ai.models.generateContent({
+      model: MODEL_NAME,
+      contents: prompt,
+      config
+    });
+    return response.text || "";
   });
-  return response.text || "";
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
@@ -135,43 +208,44 @@ export const organizeSummaryAI = async (text: string, settings?: AppSettings): P
 };
 
 export const analyzePaperSummary = async (fileData: ArrayBuffer, globalTags: string[], settings?: AppSettings): Promise<{ summary: string, tags: string[] }> => {
-  const ai = getClient();
-  const base64Data = arrayBufferToBase64(fileData);
-  const promptText = DEFAULT_PROMPTS.ANALYZE_PAPER_SUMMARY.replace('{{globalTags}}', JSON.stringify(globalTags));
+  return callAi(async (ai) => {
+    const base64Data = arrayBufferToBase64(fileData);
+    const promptText = DEFAULT_PROMPTS.ANALYZE_PAPER_SUMMARY.replace('{{globalTags}}', JSON.stringify(globalTags));
 
-  const response = await ai.models.generateContent({
-    model: MODEL_NAME,
-    contents: {
-      parts: [
-        { inlineData: { mimeType: 'application/pdf', data: base64Data } },
-        { text: promptText }
-      ]
-    },
-    config: {
-      temperature: 0.1,
-      maxOutputTokens: 8192,
-      responseMimeType: "application/json",
-      responseSchema: {
-         type: Type.OBJECT,
-         properties: { 
-           summary: { type: Type.STRING },
-           tags: { type: Type.ARRAY, items: { type: Type.STRING } }
-         },
-         required: ["summary", "tags"]
+    const response = await ai.models.generateContent({
+      model: MODEL_NAME,
+      contents: {
+        parts: [
+          { inlineData: { mimeType: 'application/pdf', data: base64Data } },
+          { text: promptText }
+        ]
+      },
+      config: {
+        temperature: 0.1,
+        maxOutputTokens: 8192,
+        responseMimeType: "application/json",
+        responseSchema: {
+           type: Type.OBJECT,
+           properties: { 
+             summary: { type: Type.STRING },
+             tags: { type: Type.ARRAY, items: { type: Type.STRING } }
+           },
+           required: ["summary", "tags"]
+        }
       }
+    });
+
+    try {
+      const json = JSON.parse(response.text?.trim() || "{}");
+      return {
+        summary: json.summary || "",
+        tags: Array.isArray(json.tags) ? json.tags : []
+      };
+    } catch (e) {
+      console.error("Summary Parse Error", e);
+      return { summary: response.text || "", tags: [] };
     }
   });
-
-  try {
-    const json = JSON.parse(response.text?.trim() || "{}");
-    return {
-      summary: json.summary || "",
-      tags: Array.isArray(json.tags) ? json.tags : []
-    };
-  } catch (e) {
-    console.error("Summary Parse Error", e);
-    return { summary: response.text || "", tags: [] };
-  }
 };
 
 // Robust Text Block Parser
@@ -213,35 +287,35 @@ function parseHighlightBlocks(text: string): any[] {
 }
 
 export const analyzePaperHighlights = async (fileData: ArrayBuffer, globalTags: string[], settings?: AppSettings): Promise<any[]> => {
-  const ai = getClient();
-  const base64Data = arrayBufferToBase64(fileData);
+  return callAi(async (ai) => {
+    const base64Data = arrayBufferToBase64(fileData);
 
-  let promptTemplate = DEFAULT_PROMPTS.ANALYZE_PAPER_HIGHLIGHTS;
-  if (settings?.promptAnalyzePaper) {
-      promptTemplate = settings.promptAnalyzePaper;
-  }
-  const promptText = promptTemplate.replace('{{globalTags}}', JSON.stringify(globalTags));
+    let promptTemplate = DEFAULT_PROMPTS.ANALYZE_PAPER_HIGHLIGHTS;
+    if (settings?.promptAnalyzePaper) {
+        promptTemplate = settings.promptAnalyzePaper;
+    }
+    const promptText = promptTemplate.replace('{{globalTags}}', JSON.stringify(globalTags));
 
-  // We intentionally do NOT use JSON schema here to avoid "Unterminated string" syntax errors.
-  const response = await ai.models.generateContent({
-    model: MODEL_NAME,
-    contents: {
-      parts: [
-        { inlineData: { mimeType: 'application/pdf', data: base64Data } },
-        { text: promptText }
-      ]
-    },
-    config: {
-      temperature: 0.1,
-      maxOutputTokens: 8192,
+    const response = await ai.models.generateContent({
+      model: MODEL_NAME,
+      contents: {
+        parts: [
+          { inlineData: { mimeType: 'application/pdf', data: base64Data } },
+          { text: promptText }
+        ]
+      },
+      config: {
+        temperature: 0.1,
+        maxOutputTokens: 8192,
+      }
+    });
+
+    try {
+      const text = response.text || "";
+      return parseHighlightBlocks(text);
+    } catch (e) {
+      console.error("Highlights Parse Error", e);
+      return [];
     }
   });
-
-  try {
-    const text = response.text || "";
-    return parseHighlightBlocks(text);
-  } catch (e) {
-    console.error("Highlights Parse Error", e);
-    return [];
-  }
 };
