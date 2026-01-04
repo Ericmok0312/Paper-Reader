@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { PaperMetadata, Note, AppSettings } from '../types';
-import { Upload, FileText, Search, Trash2, BookOpen, Edit2, Check, X, Download, Archive, HardDrive, Plus, Tag, Sparkles, Loader2 } from 'lucide-react';
+import { Upload, FileText, Search, Trash2, BookOpen, Edit2, Check, X, Download, Archive, HardDrive, Plus, Tag, Sparkles, Loader2, AlertCircle } from 'lucide-react';
 import { clsx } from 'clsx';
 import { exportDatabase, importDatabase, getPaperById, saveNote, updatePaperSummary } from '../lib/db';
 import { analyzePaperSummary, analyzePaperHighlights } from '../lib/ai';
@@ -41,6 +41,9 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [tagEditId, setTagEditId] = useState<string | null>(null);
   const [currentEditTags, setCurrentEditTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
+
+  // Deletion State
+  const [paperToDeleteId, setPaperToDeleteId] = useState<string | null>(null);
 
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
@@ -341,7 +344,33 @@ const Dashboard: React.FC<DashboardProps> = ({
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {filteredPapers.map(paper => (
-                <div key={paper.id} className="group bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition-shadow flex flex-col justify-between">
+                <div key={paper.id} className="group bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition-shadow flex flex-col justify-between relative overflow-hidden">
+                  
+                  {/* Inline Deletion Overlay */}
+                  {paperToDeleteId === paper.id && (
+                    <div className="absolute inset-0 bg-white/95 backdrop-blur-[2px] z-[100] flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in-95 duration-200">
+                      <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-3">
+                        <AlertCircle size={24} />
+                      </div>
+                      <h4 className="font-bold text-slate-900 text-sm mb-1">Delete this paper?</h4>
+                      <p className="text-xs text-slate-500 mb-6">This action is permanent and will remove all associated notes and analysis.</p>
+                      <div className="flex gap-2 w-full">
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); setPaperToDeleteId(null); }}
+                          className="flex-1 py-2 px-4 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold transition-colors"
+                        >
+                          Cancel
+                        </button>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); onDeletePaper(paper.id); setPaperToDeleteId(null); }}
+                          className="flex-1 py-2 px-4 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-colors shadow-sm shadow-red-100"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   <div>
                     {/* Header Row: Icon, Actions */}
                     <div className="flex justify-between items-start mb-2">
@@ -349,18 +378,18 @@ const Dashboard: React.FC<DashboardProps> = ({
                         <FileText size={24} />
                       </div>
                       
-                      {/* Actions: Always visible now (removed opacity-0) */}
-                      <div className="flex gap-1">
+                      {/* Actions */}
+                      <div className="flex gap-1 relative z-[50]">
                          <button 
-                          onClick={(e) => { e.stopPropagation(); startEditing(paper); }}
-                          className="text-gray-400 hover:text-indigo-600 p-1.5 rounded-md hover:bg-indigo-50 transition-colors"
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); startEditing(paper); }}
+                          className="text-gray-400 hover:text-indigo-600 p-1.5 rounded-md hover:bg-indigo-50 transition-colors cursor-pointer"
                           title="Rename Paper"
                         >
                           <Edit2 size={16} />
                         </button>
                         <button 
-                          onClick={(e) => { e.stopPropagation(); onDeletePaper(paper.id); }}
-                          className="text-gray-400 hover:text-red-500 p-1.5 rounded-md hover:bg-red-50 transition-colors"
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); setPaperToDeleteId(paper.id); }}
+                          className="text-gray-400 hover:text-red-500 p-1.5 rounded-md hover:bg-red-50 transition-colors cursor-pointer"
                           title="Delete Paper"
                         >
                           <Trash2 size={16} />
@@ -370,7 +399,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                     
                     {/* Title Editing */}
                     {editingPaperId === paper.id ? (
-                      <div className="mb-2 flex items-center gap-2">
+                      <div className="mb-2 flex items-center gap-2 relative z-20">
                         <input
                           type="text"
                           value={editTitle}
@@ -395,7 +424,7 @@ const Dashboard: React.FC<DashboardProps> = ({
 
                     {/* Tags Area */}
                     {tagEditId === paper.id ? (
-                      <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm mb-2" onClick={e => e.stopPropagation()}>
+                      <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm mb-2 relative z-20" onClick={e => e.stopPropagation()}>
                         <div className="flex flex-wrap gap-1 mb-2">
                           {currentEditTags.map(tag => (
                             <span key={tag} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700 border border-indigo-200">
@@ -434,7 +463,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                           </span>
                         ))}
                         <button 
-                          onClick={(e) => { e.stopPropagation(); startEditingTags(paper); }}
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); startEditingTags(paper); }}
                           className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 p-0.5 rounded"
                           title="Manage Tags"
                         >
@@ -451,7 +480,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                     <div className="flex items-center gap-2">
                        {/* AI Analysis Button */}
                        <button
-                         onClick={(e) => { e.stopPropagation(); handleAnalyzePaper(paper.id); }}
+                         onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleAnalyzePaper(paper.id); }}
                          className={`inline-flex items-center gap-1.5 text-xs font-bold px-2 py-1.5 rounded-lg transition-colors ${analyzingPaperId === paper.id ? 'bg-indigo-100 text-indigo-700 cursor-not-allowed' : 'text-indigo-600 hover:bg-indigo-50'}`}
                          disabled={!!analyzingPaperId}
                          title="AI Analyze Paper (Generate Summary & Highlights)"

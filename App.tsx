@@ -135,6 +135,17 @@ const App: React.FC = () => {
       setCurrentPaper({ ...currentPaper, aiSummary: newSummary });
     }
   };
+  
+  const handleDeletePaper = async (id: string) => {
+    // Confirmation is now handled in the Dashboard component via state
+    setPapers(prev => prev.filter(p => p.id !== id));
+    try {
+      await deletePaper(id);
+    } catch (error) {
+      console.error("Failed to delete paper from DB:", error);
+      loadLibrary(); // Reload on error to restore the UI state if needed
+    }
+  };
 
   const handleAIRequest = async (task: string, payload: any) => {
     const notifId = crypto.randomUUID();
@@ -299,7 +310,7 @@ const App: React.FC = () => {
             papers={papers} 
             globalTags={allTags}
             onUpload={handleUpload} onSelectPaper={handleSelectPaper} 
-            onDeletePaper={deletePaper} onRenamePaper={updatePaperTitle} onUpdateTags={updatePaperTags}
+            onDeletePaper={handleDeletePaper} onRenamePaper={updatePaperTitle} onUpdateTags={updatePaperTags}
             onImportSuccess={loadLibrary} autoBackupStatus={{ active: !!backupHandle && !backupPermissionNeeded, lastBackup: lastBackupTime }}
             isUploading={isUploading} 
           />

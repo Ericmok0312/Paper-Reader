@@ -73,7 +73,7 @@ const getClient = () => {
 async function generateText(prompt: string, settings?: AppSettings, jsonMode = false): Promise<string> {
   const ai = getClient();
   const config: any = {
-    temperature: 0.1,
+    temperature: 0.1, // Low temperature for deterministic/focused results
     maxOutputTokens: 8192,
   };
   if (jsonMode) {

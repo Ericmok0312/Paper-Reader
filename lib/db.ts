@@ -2,7 +2,7 @@ import { Paper, Note, PaperMetadata } from '../types';
 import JSZip from 'jszip';
 
 const DB_NAME = 'ScholarNoteDB';
-const DB_VERSION = 3; // Incremented for aiSummary addition
+const DB_VERSION = 5; 
 const STORE_PAPERS = 'papers';
 const STORE_NOTES = 'notes';
 const STORE_CONFIG = 'config';
@@ -14,13 +14,24 @@ const openDB = (): Promise<IDBDatabase> => {
 
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
+      const tx = (event.target as IDBOpenDBRequest).transaction;
+
       if (!db.objectStoreNames.contains(STORE_PAPERS)) {
         db.createObjectStore(STORE_PAPERS, { keyPath: 'id' });
       }
+
+      let notesStore;
       if (!db.objectStoreNames.contains(STORE_NOTES)) {
-        const notesStore = db.createObjectStore(STORE_NOTES, { keyPath: 'id' });
+        notesStore = db.createObjectStore(STORE_NOTES, { keyPath: 'id' });
+      } else {
+        notesStore = tx!.objectStore(STORE_NOTES);
+      }
+
+      // Ensure index exists
+      if (!notesStore.indexNames.contains('paperId')) {
         notesStore.createIndex('paperId', 'paperId', { unique: false });
       }
+
       if (!db.objectStoreNames.contains(STORE_CONFIG)) {
         db.createObjectStore(STORE_CONFIG);
       }
@@ -28,6 +39,7 @@ const openDB = (): Promise<IDBDatabase> => {
 
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
+    request.onblocked = () => console.warn("DB Open Blocked: Close other tabs");
   });
 };
 
@@ -71,26 +83,34 @@ export const getPaperById = async (id: string): Promise<Paper | undefined> => {
 
 export const deletePaper = async (id: string): Promise<void> => {
   const db = await openDB();
+  
+  // 1. Delete associated notes first (best effort)
+  try {
+    const tx = db.transaction(STORE_NOTES, 'readwrite');
+    const store = tx.objectStore(STORE_NOTES);
+    if (store.indexNames.contains('paperId')) {
+      const index = store.index('paperId');
+      const cursorReq = index.openKeyCursor(IDBKeyRange.only(id));
+      cursorReq.onsuccess = (e: any) => {
+        const cursor = e.target.result;
+        if (cursor) {
+          store.delete(cursor.primaryKey);
+          cursor.continue();
+        }
+      };
+    }
+  } catch (e) {
+    console.warn("Notes cleanup deferred or failed", e);
+  }
+
+  // 2. Primary Action: Delete Paper record. 
+  // Following the same logic as deleteNote (request.onsuccess) to avoid transaction hang.
   return new Promise((resolve, reject) => {
-    const tx = db.transaction([STORE_PAPERS, STORE_NOTES], 'readwrite');
-    const pStore = tx.objectStore(STORE_PAPERS);
-    pStore.delete(id);
-    
-    // Also delete associated notes
-    const nStore = tx.objectStore(STORE_NOTES);
-    const idx = nStore.index('paperId');
-    const idxReq = idx.openCursor(IDBKeyRange.only(id));
-    
-    idxReq.onsuccess = (e) => {
-      const cursor = (e.target as IDBRequest).result;
-      if (cursor) {
-        cursor.delete();
-        cursor.continue();
-      }
-    };
-    
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+    const tx = db.transaction(STORE_PAPERS, 'readwrite');
+    const store = tx.objectStore(STORE_PAPERS);
+    const request = store.delete(id);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
   });
 };
 
@@ -140,10 +160,21 @@ export const getNotesByPaperId = async (paperId: string): Promise<Note[]> => {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NOTES, 'readonly');
     const store = tx.objectStore(STORE_NOTES);
-    const index = store.index('paperId');
-    const request = index.getAll(paperId);
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    // Fallback if index missing (should happen less now with V5 bump)
+    if (store.indexNames.contains('paperId')) {
+        const index = store.index('paperId');
+        const request = index.getAll(paperId);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    } else {
+        // Slow fallback: iterate all notes
+        const request = store.getAll();
+        request.onsuccess = () => {
+             const all = request.result as Note[];
+             resolve(all.filter(n => n.paperId === paperId));
+        };
+        request.onerror = () => reject(request.error);
+    }
   });
 };
 
