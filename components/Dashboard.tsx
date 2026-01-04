@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { PaperMetadata } from '../types';
-import { Upload, FileText, Search, Trash2, BookOpen, Edit2, Check, X, Download, Archive, HardDrive, Plus, Tag } from 'lucide-react';
+import { PaperMetadata, Note, AppSettings } from '../types';
+import { Upload, FileText, Search, Trash2, BookOpen, Edit2, Check, X, Download, Archive, HardDrive, Plus, Tag, Sparkles, Loader2 } from 'lucide-react';
 import { clsx } from 'clsx';
-import { exportDatabase, importDatabase } from '../lib/db';
+import { exportDatabase, importDatabase, getPaperById, saveNote, updatePaperSummary } from '../lib/db';
+import { analyzePaperSummary, analyzePaperHighlights } from '../lib/ai';
 
 interface DashboardProps {
   papers: PaperMetadata[];
+  globalTags: string[];
   onUpload: (file: File) => void;
   onSelectPaper: (id: string) => void;
   onDeletePaper: (id: string) => void;
@@ -18,11 +20,12 @@ interface DashboardProps {
 
 const Dashboard: React.FC<DashboardProps> = ({ 
   papers, 
+  globalTags,
   onUpload, 
   onSelectPaper, 
   onDeletePaper, 
   onRenamePaper, 
-  onUpdateTags,
+  onUpdateTags, 
   onImportSuccess, 
   autoBackupStatus,
   isUploading 
@@ -41,8 +44,13 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  
+  // AI Analysis State
+  const [analyzingPaperId, setAnalyzingPaperId] = useState<string | null>(null);
+  const [analyzeStatus, setAnalyzeStatus] = useState<string>('');
 
-  const allTags = Array.from(new Set(papers.flatMap(p => p.tags)));
+  // Local tags for filtering (only paper tags)
+  const allPaperTags = Array.from(new Set(papers.flatMap(p => p.tags)));
 
   const filteredPapers = papers.filter(p => {
     const matchesSearch = p.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -130,6 +138,74 @@ const Dashboard: React.FC<DashboardProps> = ({
     } finally {
       setIsImporting(false);
       e.target.value = ''; // Reset input
+    }
+  };
+  
+  const handleAnalyzePaper = async (id: string) => {
+    setAnalyzingPaperId(id);
+    setAnalyzeStatus("Reading...");
+    try {
+      // 1. Fetch full paper with file data
+      const paper = await getPaperById(id);
+      if (!paper || !paper.fileData) throw new Error("Paper data not found");
+
+      // 2. Load Settings
+      const savedSettings = localStorage.getItem('appSettings');
+      const settings = savedSettings ? JSON.parse(savedSettings) : undefined;
+      
+      // 3. Phase 1: Summary
+      setAnalyzeStatus("Summarizing...");
+      const summary = await analyzePaperSummary(paper.fileData, settings);
+      if (summary) {
+        await updatePaperSummary(id, summary);
+      }
+
+      // 4. Phase 2: Highlights
+      setAnalyzeStatus("Highlighting...");
+      const highlights = await analyzePaperHighlights(paper.fileData, globalTags, settings);
+
+      if (highlights && Array.isArray(highlights)) {
+        for (const hl of highlights) {
+           // Strict Tag Sanitization
+            let topicTag = hl.topic ? hl.topic.trim() : "Insight";
+            topicTag = topicTag.replace(/[.,;:]$/, '');
+            if (topicTag.length > 25 || topicTag.split(' ').length > 4) {
+               topicTag = "Key Insight";
+            }
+          
+            const tags = [topicTag, 'AI-Highlight'];
+
+          // Map Importance to Color
+          const importance = (hl.importance || 'Standard').trim();
+          const importanceLower = importance.toLowerCase();
+          let color: 'red' | 'blue' | 'yellow' = 'yellow';
+          if (importanceLower.includes('crit')) color = 'red';
+          else if (importanceLower.includes('high')) color = 'blue';
+
+          const newNote: Note = {
+            id: crypto.randomUUID(),
+            paperId: id,
+            pageNumber: hl.pageNumber || 1, 
+            quote: `${hl.anchorStart} ... ${hl.anchorEnd}`,
+            comment: hl.explanation || "Important point identified by AI.",
+            tags: tags,
+            highlightAreas: [],
+            createdAt: Date.now(),
+            color: color,
+            importance: importance
+          };
+          await saveNote(newNote);
+        }
+      }
+      
+      alert(`Analysis Complete!\nSummary updated.\n${highlights?.length || 0} highlights added.`);
+      
+    } catch (error) {
+      console.error(error);
+      alert("Failed to analyze paper. Ensure AI is configured correctly.");
+    } finally {
+      setAnalyzingPaperId(null);
+      setAnalyzeStatus("");
     }
   };
 
@@ -231,7 +307,7 @@ const Dashboard: React.FC<DashboardProps> = ({
               >
                 All
               </button>
-              {allTags.map(tag => (
+              {allPaperTags.map(tag => (
                 <button
                   key={tag}
                   onClick={() => setSelectedTag(tag === selectedTag ? null : tag)}
@@ -245,7 +321,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                   {tag}
                 </button>
               ))}
-              {allTags.length === 0 && (
+              {allPaperTags.length === 0 && (
                 <span className="text-gray-400 text-xs italic">No tags yet</span>
               )}
             </div>
@@ -339,7 +415,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                             autoFocus
                           />
                           <datalist id={`tags-list-${paper.id}`}>
-                            {allTags.filter(t => !currentEditTags.includes(t)).map(t => (
+                            {globalTags.filter(t => !currentEditTags.includes(t)).map(t => (
                               <option key={t} value={t} />
                             ))}
                           </datalist>
@@ -372,12 +448,25 @@ const Dashboard: React.FC<DashboardProps> = ({
                     <span className="text-xs text-gray-400">
                       Added {new Date(paper.uploadedAt).toLocaleDateString()}
                     </span>
-                    <button 
-                      onClick={() => onSelectPaper(paper.id)}
-                      className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700"
-                    >
-                      Read <BookOpen size={16} />
-                    </button>
+                    <div className="flex items-center gap-2">
+                       {/* AI Analysis Button */}
+                       <button
+                         onClick={(e) => { e.stopPropagation(); handleAnalyzePaper(paper.id); }}
+                         className={`inline-flex items-center gap-1.5 text-xs font-bold px-2 py-1.5 rounded-lg transition-colors ${analyzingPaperId === paper.id ? 'bg-indigo-100 text-indigo-700 cursor-not-allowed' : 'text-indigo-600 hover:bg-indigo-50'}`}
+                         disabled={!!analyzingPaperId}
+                         title="AI Analyze Paper (Generate Summary & Highlights)"
+                       >
+                         {analyzingPaperId === paper.id ? <Loader2 size={14} className="animate-spin"/> : <Sparkles size={14} />}
+                         {analyzingPaperId === paper.id ? (analyzeStatus || 'Analyzing...') : 'Analyze'}
+                       </button>
+
+                      <button 
+                        onClick={() => onSelectPaper(paper.id)}
+                        className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-900 hover:text-indigo-600"
+                      >
+                        Read <BookOpen size={16} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}

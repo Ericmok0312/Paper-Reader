@@ -1,13 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { Paper, Note, HighlightArea, AppSettings } from '../types';
-import { ChevronLeft, ZoomIn, ZoomOut, Plus, Highlighter, FileText, Settings as SettingsIcon } from 'lucide-react';
+import { ChevronLeft, ZoomIn, ZoomOut, Plus, Highlighter, FileText, Settings as SettingsIcon, MessageSquare, Sparkles } from 'lucide-react';
 import { clsx } from 'clsx';
 import { updatePaperTags } from '../lib/db';
 import NoteWindow from './NoteWindow';
 import SummaryPanel from './SummaryPanel';
 
-// Cast version to string to avoid "unknown" type error in strict mode
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${String(pdfjs.version)}/build/pdf.worker.min.mjs`;
 
 interface ReaderProps {
@@ -19,12 +18,13 @@ interface ReaderProps {
   onClose: () => void;
   onUpdateTags: (tags: string[]) => void;
   onUpdateSummary: (summary: string) => void;
+  onUpdateAISummary: (summary: string) => void;
   onRequestAI: (task: string, payload: any) => void;
   onSaveNote: (note: Note) => void;
   onDeleteNote: (id: string) => void;
 }
 
-const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, allNotes, settings, onClose, onUpdateTags, onUpdateSummary, onRequestAI, onSaveNote, onDeleteNote }) => {
+const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, allNotes, settings, onClose, onUpdateTags, onUpdateSummary, onUpdateAISummary, onRequestAI, onSaveNote, onDeleteNote }) => {
   const [numPages, setNumPages] = useState<number | null>(null);
   const [scale, setScale] = useState(1.2);
   const [notes, setNotes] = useState<Note[]>(initialNotes);
@@ -34,12 +34,10 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
   const [isEditingTags, setIsEditingTags] = useState(false);
   const [tagInput, setTagInput] = useState('');
 
-  // Sync props notes to state to handle external updates (e.g. AI auto-tagging, auto-reorg)
   useEffect(() => {
     setNotes(initialNotes);
   }, [initialNotes]);
 
-  // Use explicit any to avoid type mismatch if react-pdf types infer argument as unknown
   const onDocumentLoadSuccess = (document: any) => setNumPages(document.numPages);
 
   const handleSelection = useCallback(() => {
@@ -91,11 +89,8 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
       highlightAreas: selection.highlightAreas
     };
     
-    // Save immediately so App knows about it (crucial for AI features)
-    // Optimistic update local state for instant feedback
     setNotes(prev => [...prev, note]);
     onSaveNote(note);
-    
     setOpenNoteIds(prev => new Set(prev).add(note.id));
     setSelection(null);
     window.getSelection()?.removeAllRanges();
@@ -103,8 +98,6 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
 
   const handleNoteSave = (updatedNote: Note) => {
     onSaveNote(updatedNote);
-    // NoteWindow will close itself if we want, or we can manage close here.
-    // Usually NoteWindow logic handles onClose.
   };
 
   const handleDeleteLocalNote = (id: string) => {
@@ -126,26 +119,161 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
     });
   };
 
-  const getHighlightColor = () => {
-    switch (settings.highlightColor) {
+  const getHighlightColor = (color: string): string => {
+    switch (color) {
       case 'green': return 'bg-emerald-400/30 hover:bg-emerald-400/50 ring-emerald-500/20';
       case 'blue': return 'bg-sky-400/30 hover:bg-sky-400/50 ring-sky-500/20';
       case 'red': return 'bg-rose-400/30 hover:bg-rose-400/50 ring-rose-500/20';
-      default: return 'bg-yellow-400/30 hover:bg-yellow-400/50 ring-yellow-500/20'; // Yellow
+      default: return 'bg-yellow-400/30 hover:bg-yellow-400/50 ring-yellow-500/20';
     }
   };
 
-  const handleAddPaperTag = async () => {
-    if (!tagInput.trim()) return;
-    const newTags = [...paper.tags, tagInput.trim()];
-    await updatePaperTags(paper.id, newTags);
-    onUpdateTags(newTags);
-    setTagInput('');
+  const attemptAnchorAI = (pageNum: number) => {
+    const pageWrapper = document.getElementById(`page-wrapper-${pageNum}`);
+    if (!pageWrapper) return;
+    
+    // Find AI notes that haven't been successfully anchored yet
+    const unanchoredNotes = notes.filter(n => 
+      n.pageNumber === pageNum && 
+      (!n.highlightAreas || n.highlightAreas.length === 0) && 
+      n.quote
+    );
+    if (unanchoredNotes.length === 0) return;
+
+    // Small delay to ensure text layer is rendered
+    setTimeout(() => {
+        const textLayer = pageWrapper.querySelector('.react-pdf__Page__textContent');
+        if (!textLayer) return;
+        const spans = Array.from(textLayer.querySelectorAll('span')) as HTMLElement[];
+        if (spans.length === 0) return;
+
+        const pageRect = pageWrapper.querySelector('.react-pdf__Page')?.getBoundingClientRect();
+        if (!pageRect) return;
+
+        // --- ROBUST TEXT NORMALIZATION ---
+        
+        // 1. Ligature Mapping (Crucial for PDFs)
+        const LIGATURES: Record<string, string> = {
+          'ﬀ': 'ff', 'ﬁ': 'fi', 'ﬂ': 'fl', 'ﬃ': 'ffi', 'ﬄ': 'ffl', 
+          'ﬅ': 'ft', 'ﬆ': 'st', 'Ꜳ': 'AA', 'Æ': 'AE', 'ꜳ': 'aa',
+        };
+
+        const normalizeChar = (char: string) => {
+          let c = char;
+          // Replace ligatures
+          if (LIGATURES[c]) c = LIGATURES[c];
+          // Strip non-alphanumeric (ignore punctuation, spaces, math symbols)
+          return c.toLowerCase().replace(/[^a-z0-9]/g, '');
+        };
+
+        let fullPageText = "";
+        const charMap: { spanIndex: number }[] = [];
+
+        spans.forEach((span, idx) => {
+            const text = span.textContent || "";
+            for (const char of text) {
+                const norm = normalizeChar(char);
+                // Only index if normalization resulted in a char (e.g., spaces/periods become empty string)
+                if (norm) { 
+                    // Handle multi-char expansions (like 'fi')
+                    for (const n of norm) {
+                      fullPageText += n;
+                      charMap.push({ spanIndex: idx });
+                    }
+                }
+            }
+        });
+
+        unanchoredNotes.forEach(note => {
+            let matchedSpans: HTMLElement[] = [];
+            let startSpanIndex = -1;
+            let endSpanIndex = -1;
+
+            // AI Highlight Logic: Quote format is "StartSnippet ... EndSnippet"
+            if (note.quote.includes(' ... ')) {
+              const parts = note.quote.split(' ... ');
+              const startSnippet = parts[0].split('').map(normalizeChar).join('');
+              const endSnippet = parts[1].split('').map(normalizeChar).join('');
+
+              if (!startSnippet && !endSnippet) return;
+
+              // Search for Start
+              const startIndex = startSnippet ? fullPageText.indexOf(startSnippet) : -1;
+              if (startIndex !== -1) {
+                  startSpanIndex = charMap[startIndex].spanIndex;
+                  
+                  // Try to find End AFTER Start
+                  if (endSnippet) {
+                     const searchFrom = startIndex + startSnippet.length;
+                     const endIndexSearch = fullPageText.indexOf(endSnippet, searchFrom);
+                     
+                     if (endIndexSearch !== -1) {
+                         // FOUND BOTH: Full Range Match
+                         const endIndex = endIndexSearch + endSnippet.length - 1;
+                         if (charMap[endIndex]) {
+                             endSpanIndex = charMap[endIndex].spanIndex;
+                         }
+                     }
+                  }
+              } else if (endSnippet) {
+                  // Start NOT found, try finding just the End?
+                  // This is a fallback to at least show SOMETHING.
+                  const endIndexSearch = fullPageText.indexOf(endSnippet);
+                  if (endIndexSearch !== -1) {
+                      const endIndex = endIndexSearch + endSnippet.length - 1;
+                      if (charMap[endIndex]) {
+                          // If we only found the end, let's just highlight the end snippet
+                          startSpanIndex = charMap[endIndexSearch].spanIndex;
+                          endSpanIndex = charMap[endIndex].spanIndex;
+                      }
+                  }
+              }
+
+              // Fallback: If we found Start but not End, highlight just the Start snippet
+              if (startSpanIndex !== -1 && endSpanIndex === -1 && startIndex !== -1) {
+                  const endOfStartSnippet = startIndex + startSnippet.length - 1;
+                  if (charMap[endOfStartSnippet]) {
+                      endSpanIndex = charMap[endOfStartSnippet].spanIndex;
+                  }
+              }
+
+            } else {
+              // Legacy/Manual Highlight (Exact Match)
+              const cleanQuote = note.quote.split('').map(normalizeChar).join('');
+              const idx = fullPageText.indexOf(cleanQuote);
+              if (idx !== -1) {
+                 const endIdx = idx + cleanQuote.length - 1;
+                 if (charMap[idx] && charMap[endIdx]) {
+                    startSpanIndex = charMap[idx].spanIndex;
+                    endSpanIndex = charMap[endIdx].spanIndex;
+                 }
+              }
+            }
+
+            // Construct Highlights from Spans
+            if (startSpanIndex !== -1 && endSpanIndex !== -1) {
+                 const first = Math.min(startSpanIndex, endSpanIndex);
+                 const last = Math.max(startSpanIndex, endSpanIndex);
+                 matchedSpans = spans.slice(first, last + 1);
+
+                 const highlightAreas: HighlightArea[] = matchedSpans.map(span => {
+                     const rect = span.getBoundingClientRect();
+                     return {
+                        x: (rect.left - pageRect.left) / pageRect.width * 100,
+                        y: (rect.top - pageRect.top) / pageRect.height * 100,
+                        width: rect.width / pageRect.width * 100,
+                        height: rect.height / pageRect.height * 100
+                     };
+                 });
+                 // Update note with calculated areas
+                 onSaveNote({ ...note, highlightAreas });
+            }
+        });
+    }, 1200); // Slightly increased delay for render stability
   };
 
   return (
-    <div className="flex flex-col h-screen bg-slate-50">
-      {/* Top Bar */}
+    <div className="flex flex-col h-screen bg-slate-50 relative">
       <div className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 shadow-sm shrink-0 z-20">
         <div className="flex items-center gap-6">
           <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full text-slate-600 transition-colors">
@@ -163,29 +291,6 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
                 </button>
               </div>
             </div>
-            {isEditingTags && (
-              <div className="absolute top-14 left-16 w-72 bg-white shadow-2xl rounded-xl p-3 border border-slate-200 z-[110] animate-in fade-in slide-in-from-top-2">
-                 <div className="flex gap-1.5 mb-3 flex-wrap">
-                   {paper.tags.map(t => (
-                     <span key={t} className="text-[10px] bg-indigo-50 text-indigo-700 px-2 py-1 rounded-md flex items-center gap-1.5 font-bold">
-                       {t} <button className="hover:text-red-500" onClick={async () => {
-                         const nt = paper.tags.filter(pt => pt !== t);
-                         await updatePaperTags(paper.id, nt);
-                         onUpdateTags(nt);
-                       }}>&times;</button>
-                     </span>
-                   ))}
-                 </div>
-                 <input 
-                   className="w-full text-xs bg-white border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none" 
-                   placeholder="Add tag..." 
-                   value={tagInput} 
-                   onChange={e => setTagInput(e.target.value)} 
-                   onKeyDown={e => e.key === 'Enter' && handleAddPaperTag()} 
-                   autoFocus
-                 />
-              </div>
-            )}
           </div>
         </div>
 
@@ -200,39 +305,42 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
             </button>
           </div>
           <button onClick={() => setShowSummary(!showSummary)} className={clsx("h-9 px-4 rounded-full transition-all text-xs font-bold flex items-center gap-2 border", showSummary ? "bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-100" : "bg-white text-slate-600 border-slate-200 hover:border-indigo-400")}>
-            <FileText size={16} /> SUMMARY
+            <FileText size={16} /> ANALYSIS & NOTES
           </button>
         </div>
       </div>
 
-      {/* Main Content Area - Use generic div structure to avoid scrolling issues */}
       <div className="flex-1 overflow-auto bg-slate-100 relative p-8">
         <div className="flex justify-center min-h-full">
            <div className="relative shadow-2xl rounded-sm bg-white">
             <Document file={paper.fileData} onLoadSuccess={onDocumentLoadSuccess} className="pdf-document">
-              {numPages && Array.from(new Array(numPages), (_, index) => {
+              {numPages && Array.from({ length: numPages }, (_, index) => {
                 const pageNum = index + 1;
                 const pageNotes = notes.filter(n => n.pageNumber === pageNum);
+                const highlightedNotes = pageNotes.filter(n => n.highlightAreas && n.highlightAreas.length > 0);
+                const genericNotes = pageNotes.filter(n => !n.highlightAreas || n.highlightAreas.length === 0);
+
                 return (
-                  <div key={`page_${pageNum}`} className="mb-6 relative group bg-white border border-slate-200 shadow-sm" style={{ width: 'fit-content' }}>
-                    <Page pageNumber={pageNum} scale={scale} renderTextLayer={true} renderAnnotationLayer={false} />
-                    
-                    {/* Highlights Overlay */}
+                  <div key={`page_${pageNum}`} id={`page-wrapper-${pageNum}`} className="mb-6 relative group bg-white border border-slate-200 shadow-sm" style={{ width: 'fit-content' }}>
+                    <Page pageNumber={pageNum} scale={scale} renderTextLayer={true} renderAnnotationLayer={false} onRenderSuccess={() => attemptAnchorAI(pageNum)} />
                     <div className="absolute inset-0 z-10 pointer-events-none">
-                      {pageNotes.map(note => (
+                      {highlightedNotes.map(note => (
                         <div key={note.id}>
                           {(note.highlightAreas || []).map((area, idx) => (
-                             <div 
-                               key={idx}
-                               onClick={(e) => { e.stopPropagation(); toggleNoteWindow(note.id); }}
-                               className={clsx("absolute mix-blend-multiply transition-all cursor-pointer pointer-events-auto rounded-sm ring-1", getHighlightColor())}
-                               style={{ left: `${area.x}%`, top: `${area.y}%`, width: `${area.width}%`, height: `${area.height}%` }}
-                               title="Click to toggle note"
-                             />
+                             <div key={idx} onClick={(e) => { e.stopPropagation(); toggleNoteWindow(note.id); }} className={clsx("absolute mix-blend-multiply transition-all cursor-pointer pointer-events-auto rounded-sm ring-1", getHighlightColor(note.color))} style={{ left: `${area.x}%`, top: `${area.y}%`, width: `${area.width}%`, height: `${area.height}%` }} />
                           ))}
                         </div>
                       ))}
                     </div>
+                    {genericNotes.length > 0 && (
+                      <div className="absolute -right-12 top-0 flex flex-col gap-2 z-20">
+                         {genericNotes.map((note) => (
+                           <button key={note.id} onClick={(e) => { e.stopPropagation(); toggleNoteWindow(note.id); }} className="w-8 h-8 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded-full flex items-center justify-center shadow-sm border border-indigo-200 transition-all hover:scale-110">
+                             <Sparkles size={14} />
+                           </button>
+                         ))}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -241,38 +349,41 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
         </div>
       </div>
 
-       {/* Floating Action Bar */}
        {selection && (
           <div className="fixed bg-slate-900 text-white px-4 py-2 rounded-full shadow-2xl z-[150] flex items-center gap-3 animate-in fade-in zoom-in duration-200 border border-slate-700" style={{ top: (selection.rect?.top || 0) - 60, left: (selection.rect?.left || 0) + (selection.rect?.width || 0) / 2, transform: 'translateX(-50%)' }}>
              <button onClick={handleCreateNote} className="flex items-center gap-2 hover:text-indigo-400 transition-colors text-xs font-bold uppercase tracking-widest">
-               <Highlighter size={16} /> Create Highlighted Note
+               <Highlighter size={16} /> Highlight & Note
              </button>
           </div>
         )}
 
-      {/* Note Windows - Fixed Position */}
+      {/* Legend */}
+      <div className="fixed bottom-6 left-6 bg-white/90 backdrop-blur border border-slate-200 p-3 rounded-lg shadow-lg z-40 text-xs">
+          <h4 className="font-bold text-slate-500 mb-2 uppercase tracking-wider text-[10px]">Highlight Legend</h4>
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-rose-400"></div> <span className="text-slate-700">Critical Importance</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-sky-400"></div> <span className="text-slate-700">High Importance</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-yellow-400"></div> <span className="text-slate-700">Standard / Insight</span>
+            </div>
+          </div>
+      </div>
+
       <div className="note-window-ignore">
         {Array.from(openNoteIds).map(id => {
           const note = notes.find(n => n.id === id);
           if (!note) return null;
-          return (
-            <NoteWindow 
-              key={id}
-              note={note}
-              allGlobalTags={allGlobalTags}
-              allNotes={allNotes}
-              onSave={handleNoteSave}
-              onDelete={() => handleDeleteLocalNote(id)}
-              onClose={() => toggleNoteWindow(id)}
-              onRequestAI={onRequestAI}
-            />
-          );
+          return <NoteWindow key={id} note={note} allGlobalTags={allGlobalTags} allNotes={allNotes} onSave={handleNoteSave} onDelete={() => handleDeleteLocalNote(id)} onClose={() => toggleNoteWindow(id)} onRequestAI={onRequestAI} />;
         })}
       </div>
 
       {showSummary && (
         <div className="absolute right-0 top-16 bottom-0 z-30 shadow-xl animate-in slide-in-from-right">
-          <SummaryPanel summary={paper.summary || ''} onSave={onUpdateSummary} onClose={() => setShowSummary(false)} onRequestAI={onRequestAI} />
+          <SummaryPanel aiSummary={paper.aiSummary || ''} manualSummary={paper.summary || ''} onSaveManual={onUpdateSummary} onSaveAI={onUpdateAISummary} onClose={() => setShowSummary(false)} onRequestAI={onRequestAI} />
         </div>
       )}
     </div>

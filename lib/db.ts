@@ -2,7 +2,7 @@ import { Paper, Note, PaperMetadata } from '../types';
 import JSZip from 'jszip';
 
 const DB_NAME = 'ScholarNoteDB';
-const DB_VERSION = 2; // Incremented for config store
+const DB_VERSION = 3; // Incremented for aiSummary addition
 const STORE_PAPERS = 'papers';
 const STORE_NOTES = 'notes';
 const STORE_CONFIG = 'config';
@@ -115,6 +115,13 @@ export const updatePaperSummary = async (id: string, summary: string): Promise<v
   await savePaper(paper);
 };
 
+export const updatePaperAISummary = async (id: string, aiSummary: string): Promise<void> => {
+  const paper = await getPaperById(id);
+  if (!paper) return;
+  paper.aiSummary = aiSummary;
+  await savePaper(paper);
+};
+
 // Notes operations
 
 export const saveNote = async (note: Note): Promise<void> => {
@@ -192,7 +199,6 @@ export const exportDatabase = async (): Promise<Blob> => {
   });
 
   // 3. Construct JSON DB Structure
-  // We strip fileData from the main JSON to keep it lightweight, files go into folders
   const papersMetadata = allPapers.map(({ fileData, ...rest }) => rest);
   
   const portableDB = {
@@ -222,11 +228,8 @@ export const exportDatabase = async (): Promise<Blob> => {
 // Automatic Backup Writer
 export const writeBackupToHandle = async (fileHandle: any): Promise<void> => {
   const blob = await exportDatabase();
-  // Create a writable stream to the file
   const writable = await fileHandle.createWritable();
-  // Write the contents
   await writable.write(blob);
-  // Close the file
   await writable.close();
 };
 
@@ -254,7 +257,6 @@ export const importDatabase = async (zipFile: File): Promise<void> => {
 
   // 3. Restore Papers
   for (const meta of data.papers) {
-    // Load binary from zip
     const pdfFile = zip.file(`papers/${meta.id}.pdf`);
     let fileData: ArrayBuffer | undefined;
     
@@ -262,7 +264,7 @@ export const importDatabase = async (zipFile: File): Promise<void> => {
       fileData = await pdfFile.async("arraybuffer");
     } else {
       console.warn(`PDF file for ${meta.id} not found in zip`);
-      continue; // Skip if file missing
+      continue;
     }
 
     const paper: Paper = {

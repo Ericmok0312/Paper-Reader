@@ -4,7 +4,8 @@ export interface Paper {
   fileData: ArrayBuffer; // Stored in IndexedDB
   fileName: string;
   tags: string[];
-  summary?: string; // User written summary
+  summary?: string; // Manual personal learning notes
+  aiSummary?: string; // AI generated executive summary
   uploadedAt: number;
   lastReadAt: number;
 }
@@ -20,12 +21,13 @@ export interface Note {
   id: string;
   paperId: string;
   pageNumber: number;
-  quote: string; // The selected text
-  comment: string; // The user's note
+  quote: string; // The selected text (full sentence)
+  comment: string; // The user's note or AI explanation
   tags: string[]; // Linked knowledge tags
   highlightAreas: HighlightArea[]; // Coordinates for rendering highlights
   createdAt: number;
   color: 'yellow' | 'green' | 'blue' | 'red';
+  importance?: string; // e.g. "Critical", "High", "Standard"
 }
 
 export interface PaperMetadata {
@@ -51,6 +53,7 @@ export interface AppSettings {
   promptSuggestTags?: string;
   promptReorganizeNote?: string;
   promptOrganizeSummary?: string;
+  promptAnalyzePaper?: string;
 }
 
 export interface NotificationItem {

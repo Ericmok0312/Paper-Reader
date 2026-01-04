@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Note } from '../types';
 import { X, Save, Wand2, Tag, Search, Check, Trash2, AlertTriangle } from 'lucide-react';
+import { clsx } from 'clsx';
 
 interface NoteWindowProps {
   note: Note;
@@ -130,7 +131,18 @@ const NoteWindow: React.FC<NoteWindowProps> = ({ note, allGlobalTags, allNotes, 
       className="fixed w-[400px] bg-white rounded-xl shadow-2xl border border-gray-200 z-[60] flex flex-col animate-in fade-in zoom-in-95 duration-150"
     >
       <div onMouseDown={handleMouseDown} className="h-10 bg-slate-900 rounded-t-xl flex items-center justify-between px-3 cursor-move shrink-0">
-        <span className="text-white text-xs font-bold">Note</span>
+        <div className="flex items-center gap-2">
+            <span className="text-white text-xs font-bold">Note</span>
+            {note.importance && (
+              <span className={clsx("text-[9px] font-bold px-1.5 py-0.5 rounded-sm uppercase tracking-wider",
+                note.color === 'red' ? "bg-rose-500 text-white" :
+                note.color === 'blue' ? "bg-sky-500 text-white" :
+                "bg-amber-400 text-black"
+              )}>
+                {note.importance}
+              </span>
+            )}
+        </div>
         <button onClick={onClose} className="text-white/70 hover:text-white no-drag"><X size={16} /></button>
       </div>
 

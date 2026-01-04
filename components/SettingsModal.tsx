@@ -19,6 +19,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
   const [promptSuggestTags, setPromptSuggestTags] = useState(settings.promptSuggestTags || '');
   const [promptReorganizeNote, setPromptReorganizeNote] = useState(settings.promptReorganizeNote || '');
   const [promptOrganizeSummary, setPromptOrganizeSummary] = useState(settings.promptOrganizeSummary || '');
+  const [promptAnalyzePaper, setPromptAnalyzePaper] = useState(settings.promptAnalyzePaper || '');
   
   const [activeTab, setActiveTab] = useState<'general' | 'prompts' | 'backup'>('general');
 
@@ -29,7 +30,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
       aiModel: aiModel.trim() || undefined,
       promptSuggestTags: promptSuggestTags.trim() || undefined,
       promptReorganizeNote: promptReorganizeNote.trim() || undefined,
-      promptOrganizeSummary: promptOrganizeSummary.trim() || undefined
+      promptOrganizeSummary: promptOrganizeSummary.trim() || undefined,
+      promptAnalyzePaper: promptAnalyzePaper.trim() || undefined
     });
     onClose();
   };
@@ -176,6 +178,19 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
           value={promptOrganizeSummary}
           onChange={(e) => setPromptOrganizeSummary(e.target.value)}
           placeholder="Default: Reorganize this summary..."
+          className="w-full h-24 text-xs bg-white border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500/20 outline-none resize-none font-mono"
+        />
+      </div>
+
+      <div>
+        <div className="flex justify-between items-center mb-1">
+          <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Full Paper Analysis Prompt</label>
+          <button onClick={() => setPromptAnalyzePaper('')} className="text-[10px] text-slate-400 hover:text-indigo-600 flex items-center gap-1"><RotateCcw size={10}/> Reset</button>
+        </div>
+        <textarea 
+          value={promptAnalyzePaper}
+          onChange={(e) => setPromptAnalyzePaper(e.target.value)}
+          placeholder="Default: Analyze this PDF and return..."
           className="w-full h-24 text-xs bg-white border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500/20 outline-none resize-none font-mono"
         />
       </div>
