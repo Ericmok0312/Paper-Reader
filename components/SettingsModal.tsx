@@ -139,12 +139,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onClose, onSave
         </div>
         
         <p className="text-[10px] text-slate-400 mb-3 leading-relaxed">
-          Configure a local LLM or custom proxy (e.g. standard OpenAI endpoint). If "Base URL" is set, ScholarNote will ignore the Gemini Key above and use this endpoint instead.
+          Configure a local LLM or custom proxy (e.g. GCLI). If "Base URL" is set, ScholarNote will use this instead of the Gemini Cloud API.
         </p>
         
         <div className="space-y-3">
           <div>
-            <label className="text-xs text-slate-600 font-medium">Base URL</label>
+            <label className="text-xs text-slate-600 font-medium">Base URL <span className="text-slate-400">(should usually include /v1)</span></label>
             <input 
               type="text" 
               value={apiBaseUrl}
@@ -159,7 +159,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onClose, onSave
               type="text" 
               value={aiModel}
               onChange={(e) => setAiModel(e.target.value)}
-              placeholder="e.g. gemini-2.5-pro or gpt-4"
+              placeholder="e.g. gemini-2.5-pro"
               className="w-full mt-1 text-sm bg-white border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono text-slate-700 placeholder:text-slate-300"
             />
           </div>

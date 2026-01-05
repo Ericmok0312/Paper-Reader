@@ -82,11 +82,11 @@ async function callOpenAI(
 ): Promise<string> {
   const baseUrl = settings.apiBaseUrl?.replace(/\/+$/, '') || 'http://127.0.0.1:7861/v1';
   const url = `${baseUrl}/chat/completions`;
-  const model = settings.aiModel || 'gemini-2.5-pro';
+  const model = settings.aiModel || 'gemini-2.5-pro'; // Default to 2.5-pro for proxy compatibility
   
-  // Use the configured API keys as the Bearer token (or 'pwd' if configured as such)
+  // Use env key first, then fallback to 'pwd' for local proxies
   const keys = getAvailableKeys();
-  const apiKey = 'pwd';
+  const apiKey = keys.length > 0 ? keys[0] : (process.env.API_KEY || 'pwd');
 
   const messages = [
     { role: 'system', content: 'You are a helpful academic research assistant.' },
@@ -116,6 +116,7 @@ async function callOpenAI(
 
     if (!res.ok) {
       const errText = await res.text();
+      console.error(`OpenAI Proxy Error at ${url}:`, errText);
       throw new Error(`OpenAI Proxy Error (${res.status}): ${errText}`);
     }
 
