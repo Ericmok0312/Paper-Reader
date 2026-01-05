@@ -256,8 +256,8 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
 
             if (note.quote.includes(' ... ')) {
               const parts = note.quote.split(' ... ');
-              const startSnippet = Array.from(parts[0] || '').map(c => normalizeChar(c)).join('');
-              const endSnippet = Array.from(parts[1] || '').map(c => normalizeChar(c)).join('');
+              const startSnippet = Array.from(parts[0] || '').map((c: any) => normalizeChar(c)).join('');
+              const endSnippet = Array.from(parts[1] || '').map((c: any) => normalizeChar(c)).join('');
 
               if (!startSnippet && !endSnippet) return;
 
@@ -289,7 +289,7 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
                   }
               }
             } else {
-              const cleanQuote = Array.from(note.quote).map(c => normalizeChar(c)).join('');
+              const cleanQuote = Array.from(note.quote).map((c: any) => normalizeChar(c)).join('');
               const idx = fullPageText.indexOf(cleanQuote);
               if (idx !== -1) {
                  const endIdx = idx + cleanQuote.length - 1;
@@ -448,7 +448,7 @@ const Reader: React.FC<ReaderProps> = ({ paper, initialNotes, allGlobalTags, all
       </div>
 
       <div className="note-window-ignore">
-        {Array.from(openNoteIds).map(id => {
+        {Array.from(openNoteIds).map((id: any) => {
           const note = notes.find(n => n.id === id);
           if (!note) return null;
           return <NoteWindow key={id} note={note} allGlobalTags={allGlobalTags} allNotes={allNotes} onSave={handleNoteSave} onDelete={() => handleDeleteLocalNote(id)} onClose={() => toggleNoteWindow(id)} onRequestAI={onRequestAI} />;

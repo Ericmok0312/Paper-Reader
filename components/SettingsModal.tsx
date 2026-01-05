@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, FileCode, RotateCcw, HardDrive, CheckCircle2, Key, ExternalLink, AlertTriangle } from 'lucide-react';
+import { X, Save, FileCode, RotateCcw, HardDrive, CheckCircle2, Key, ExternalLink, AlertTriangle, Network } from 'lucide-react';
 import { AppSettings } from '../types';
 
 interface SettingsModalProps {
@@ -86,11 +86,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onClose, onSave
              <Key size={24} />
           </div>
           <div>
-            <h3 className="font-bold text-slate-900 text-sm">Gemini API Configuration</h3>
+            <h3 className="font-bold text-slate-900 text-sm">Gemini API (Cloud)</h3>
             <p className="text-xs text-slate-500 mt-1 leading-relaxed">
               {isAiStudioAvailable 
                 ? "ScholarNote uses your personal Google Cloud project to power AI features via the AI Studio bridge."
-                : "ScholarNote is using the API Key configured in your environment (.env.local)."}
+                : "ScholarNote is using the API Key configured in your environment."}
             </p>
           </div>
         </div>
@@ -131,8 +131,16 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onClose, onSave
       </div>
 
       <div className="border-t border-slate-100 pt-6">
-        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Advanced AI Config</label>
-        <p className="text-[10px] text-slate-400 mb-3">Optional: Use OpenAI-compatible proxies.</p>
+        <div className="flex items-center gap-2 mb-4">
+          <div className="p-1.5 bg-indigo-50 text-indigo-600 rounded">
+            <Network size={16} />
+          </div>
+          <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">OpenAI Compatible Proxy</label>
+        </div>
+        
+        <p className="text-[10px] text-slate-400 mb-3 leading-relaxed">
+          Configure a local LLM or custom proxy (e.g. standard OpenAI endpoint). If "Base URL" is set, ScholarNote will ignore the Gemini Key above and use this endpoint instead.
+        </p>
         
         <div className="space-y-3">
           <div>
@@ -141,8 +149,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onClose, onSave
               type="text" 
               value={apiBaseUrl}
               onChange={(e) => setApiBaseUrl(e.target.value)}
-              placeholder="e.g. https://api.openai.com/v1"
-              className="w-full mt-1 text-sm bg-white border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500/20 outline-none"
+              placeholder="e.g. http://127.0.0.1:7861/v1"
+              className="w-full mt-1 text-sm bg-white border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono text-slate-700 placeholder:text-slate-300"
             />
           </div>
           <div>
@@ -151,8 +159,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onClose, onSave
               type="text" 
               value={aiModel}
               onChange={(e) => setAiModel(e.target.value)}
-              placeholder="e.g. gpt-4"
-              className="w-full mt-1 text-sm bg-white border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500/20 outline-none"
+              placeholder="e.g. gemini-2.5-pro or gpt-4"
+              className="w-full mt-1 text-sm bg-white border border-slate-200 rounded-lg p-2 focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono text-slate-700 placeholder:text-slate-300"
             />
           </div>
         </div>

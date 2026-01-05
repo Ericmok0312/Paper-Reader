@@ -1,5 +1,11 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { AppSettings } from "../types";
+import { pdfjs } from 'react-pdf';
+
+// Ensure worker is set up for text extraction logic if not already set by UI components
+if (typeof window !== 'undefined' && !pdfjs.GlobalWorkerOptions.workerSrc) {
+  pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${String(pdfjs.version)}/build/pdf.worker.min.mjs`;
+}
 
 const MODEL_NAME = 'gemini-3-flash-preview';
 
@@ -50,7 +56,79 @@ const getClient = async (forceNext = false): Promise<GoogleGenAI> => {
 };
 
 /**
- * Wrapper to handle errors and implement key rotation/retry logic.
+ * Extract text from PDF ArrayBuffer to support text-only proxies
+ */
+async function extractTextFromPDF(data: ArrayBuffer): Promise<string> {
+  const loadingTask = pdfjs.getDocument({ data });
+  const pdf = await loadingTask.promise;
+  let fullText = '';
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const textContent = await page.getTextContent();
+    // @ts-ignore
+    const pageText = textContent.items.map((item: any) => item.str).join(' ');
+    fullText += `--- PAGE ${i} ---\n${pageText}\n`;
+  }
+  return fullText;
+}
+
+/**
+ * Call OpenAI Compatible Endpoint
+ */
+async function callOpenAI(
+  prompt: string,
+  settings: AppSettings,
+  jsonMode: boolean = false
+): Promise<string> {
+  const baseUrl = settings.apiBaseUrl?.replace(/\/+$/, '') || 'http://127.0.0.1:7861/v1';
+  const url = `${baseUrl}/chat/completions`;
+  const model = settings.aiModel || 'gemini-2.5-pro';
+  
+  // Use the configured API keys as the Bearer token (or 'pwd' if configured as such)
+  const keys = getAvailableKeys();
+  const apiKey = keys.length > 0 ? keys[0] : (process.env.API_KEY || 'pwd');
+
+  const messages = [
+    { role: 'system', content: 'You are a helpful academic research assistant.' },
+    { role: 'user', content: prompt }
+  ];
+
+  const body: any = {
+    model,
+    messages,
+    temperature: 0.7,
+    stream: false
+  };
+
+  if (jsonMode) {
+    body.response_format = { type: "json_object" };
+  }
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`OpenAI Proxy Error (${res.status}): ${errText}`);
+    }
+
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || "";
+  } catch (error: any) {
+    console.error("OpenAI Call Failed", error);
+    throw error;
+  }
+}
+
+/**
+ * Wrapper to handle errors and implement key rotation/retry logic for Native Gemini.
  */
 async function callAi<T>(operation: (ai: GoogleGenAI) => Promise<T>): Promise<T> {
   const keys = getAvailableKeys();
@@ -69,13 +147,11 @@ async function callAi<T>(operation: (ai: GoogleGenAI) => Promise<T>): Promise<T>
       
       console.warn(`AI attempt ${attempt + 1} failed:`, error.message);
 
-      // If we have more keys in the environment to try, rotate and continue the loop
       if (attempt < maxRetries - 1 && (isNotFoundError || isRateLimit)) {
-        console.info(`Switching to next API key (Index: ${(currentKeyIndex + 1) % keys.length})...`);
+        console.info(`Switching to next API key...`);
         continue;
       }
 
-      // If it was a "not found" error and we've exhausted env keys, try prompting user if bridge exists
       if (isNotFoundError) {
         // @ts-ignore
         const aiStudio = typeof window !== 'undefined' ? (window as any).aistudio : null;
@@ -109,7 +185,7 @@ Note: "{{text}}"`,
 
   ORGANIZE_SUMMARY: `Reorganize this academic summary with standard headings: "{{text}}"`,
 
-  ANALYZE_PAPER_SUMMARY: `Act as an expert academic researcher. Deeply read the provided PDF and generate a structured Executive Summary in Markdown.
+  ANALYZE_PAPER_SUMMARY: `Act as an expert academic researcher. Deeply read the provided document and generate a structured Executive Summary in Markdown.
 
 **TASK 1: SUMMARY**
 Sections required:
@@ -125,6 +201,7 @@ Existing Knowledge Tags: {{globalTags}}
 Return JSON format: { "summary": "markdown string", "tags": ["tag1", "tag2"] }`,
 
   ANALYZE_PAPER_HIGHLIGHTS: `Act as an expert academic researcher. Extract exactly 3-4 critical Anchor Points per section.
+The document text is provided below with Page markers.
 Total highlights should be between 12 and 20.
 
 **OUTPUT FORMAT:**
@@ -142,6 +219,10 @@ IMPORTANCE: {Critical | High | Standard}
 };
 
 async function generateText(prompt: string, settings?: AppSettings, jsonMode = false): Promise<string> {
+  if (settings?.apiBaseUrl) {
+    return callOpenAI(prompt, settings, jsonMode);
+  }
+  
   return callAi(async (ai) => {
     const config: any = { temperature: 0.7 };
     if (jsonMode) config.responseMimeType = "application/json";
@@ -183,9 +264,24 @@ export const organizeSummaryAI = async (text: string, settings?: AppSettings): P
 };
 
 export const analyzePaperSummary = async (fileData: ArrayBuffer, globalTags: string[], settings?: AppSettings): Promise<{ summary: string, tags: string[] }> => {
+  const promptText = DEFAULT_PROMPTS.ANALYZE_PAPER_SUMMARY.replace('{{globalTags}}', JSON.stringify(globalTags));
+
+  // Branch: OpenAI Proxy
+  if (settings?.apiBaseUrl) {
+    try {
+      const textContent = await extractTextFromPDF(fileData);
+      const fullPrompt = `Document Content:\n${textContent}\n\nTask:\n${promptText}\n\nEnsure valid JSON output.`;
+      const resultText = await callOpenAI(fullPrompt, settings, true);
+      return JSON.parse(resultText.replace(/```json/g, '').replace(/```/g, '').trim());
+    } catch (e) {
+      console.error("OpenAI Summary Failed", e);
+      return { summary: "Analysis Failed: " + (e as Error).message, tags: [] };
+    }
+  }
+
+  // Branch: Native Gemini
   return callAi(async (ai) => {
     const base64Data = arrayBufferToBase64(fileData);
-    const promptText = DEFAULT_PROMPTS.ANALYZE_PAPER_SUMMARY.replace('{{globalTags}}', JSON.stringify(globalTags));
     const response = await ai.models.generateContent({
       model: MODEL_NAME,
       contents: {
@@ -209,9 +305,25 @@ export const analyzePaperSummary = async (fileData: ArrayBuffer, globalTags: str
 };
 
 export const analyzePaperHighlights = async (fileData: ArrayBuffer, globalTags: string[], settings?: AppSettings): Promise<any[]> => {
+  const promptTemplate = settings?.promptAnalyzePaper || DEFAULT_PROMPTS.ANALYZE_PAPER_HIGHLIGHTS;
+  const promptText = promptTemplate.replace('{{globalTags}}', JSON.stringify(globalTags));
+
+  // Branch: OpenAI Proxy
+  if (settings?.apiBaseUrl) {
+     try {
+       const textContent = await extractTextFromPDF(fileData);
+       const fullPrompt = `Document Content:\n${textContent}\n\nTask:\n${promptText}`;
+       const resultText = await callOpenAI(fullPrompt, settings, false);
+       return parseHighlightBlocks(resultText);
+     } catch (e) {
+       console.error("OpenAI Highlights Failed", e);
+       return [];
+     }
+  }
+
+  // Branch: Native Gemini
   return callAi(async (ai) => {
     const base64Data = arrayBufferToBase64(fileData);
-    const promptText = (settings?.promptAnalyzePaper || DEFAULT_PROMPTS.ANALYZE_PAPER_HIGHLIGHTS).replace('{{globalTags}}', JSON.stringify(globalTags));
     const response = await ai.models.generateContent({
       model: MODEL_NAME,
       contents: {
