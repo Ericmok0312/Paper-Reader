@@ -86,7 +86,7 @@ async function callOpenAI(
   
   // Use the configured API keys as the Bearer token (or 'pwd' if configured as such)
   const keys = getAvailableKeys();
-  const apiKey = keys.length > 0 ? keys[0] : (process.env.API_KEY || 'pwd');
+  const apiKey = 'pwd';
 
   const messages = [
     { role: 'system', content: 'You are a helpful academic research assistant.' },
